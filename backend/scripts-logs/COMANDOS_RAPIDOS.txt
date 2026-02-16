@@ -1,0 +1,75 @@
+═══════════════════════════════════════════════════════════
+          COMANDOS RÁPIDOS - Monitor de Tickets
+═══════════════════════════════════════════════════════════
+
+📍 LOCALIZAÇÃO
+   /home/deployzdg/cognos-antigo/cognosbot-backend-backup/scripts-logs/
+
+⚡ COMANDOS PRINCIPAIS
+
+1. Monitorar PM2 (Tempo Real) ⭐ RECOMENDADO:
+   cd /home/deployzdg/cognos-antigo/cognosbot-backend-backup
+   ./scripts-logs/monitor_tickets_pm2.sh VBG-Backend
+
+2. Monitorar Arquivo de Log:
+   cd /home/deployzdg/cognos-antigo/cognosbot-backend-backup
+   ./scripts-logs/monitor_tickets.sh logs/app.logg
+
+3. Monitorar Todas as Instâncias:
+   /home/deployzdg/cognos-antigo/monitor_todas_instancias.sh
+
+3. Ver Logs Recentes:
+   tail -100 logs/app.logg | grep "reused ticket"
+
+4. Procurar Ticket Específico:
+   grep "ticketId=123" logs/app.logg
+
+5. Ver Logs de Hoje:
+   grep "$(date +%Y-%m-%d)" logs/app.logg | grep "FindOrCreateTicketService"
+
+═══════════════════════════════════════════════════════════
+
+📊 INTERPRETAR RESULTADOS
+
+✅ BOM (Esperado):
+   - "✅ Sistema funcionando corretamente!"
+   - "Tickets Mantidos Fechados (Sistema)" > 0
+   - "Nenhum ticket reaberto incorretamente"
+
+❌ PROBLEMA (Investigar):
+   - "❌ PROBLEMA: X tickets reabertos incorretamente"
+   - "fromMe=true" em "reused ticket set to pending"
+
+⚠️  IMPORTANTE ENTENDER:
+   - "Mensagens agendadas: 5" = 5 mensagens ENVIADAS (não reaberturas)
+   - "Tickets mantidos fechados: 5" = 5 tickets NÃO reabriram (correto!)
+   
+   Ver explicação completa: cat ENTENDENDO_METRICAS.md
+
+═══════════════════════════════════════════════════════════
+
+🔍 LOGS IMPORTANTES
+
+Mensagens do Cliente (OK):
+   grep "message from client" logs/app.logg
+
+Tickets Mantidos Fechados (OK):
+   grep "reused ticket without reopening" logs/app.logg
+
+Possíveis Problemas:
+   grep "reused ticket set to pending" logs/app.logg | grep "fromMe=true"
+
+Inatividade do Bot:
+   grep "FindUpdateTicketsInactiveChatBot" logs/app.logg
+
+Mensagens Agendadas:
+   grep "schedule flow" logs/app.logg
+
+═══════════════════════════════════════════════════════════
+
+📝 NOTAS IMPORTANTES:
+   - Os logs usam extensão .logg (com dois 'g'), não .log
+   - "Mensagens agendadas" = quantidade ENVIADA, não reaberturas
+   - Para entender todas as métricas: cat ENTENDENDO_METRICAS.md
+
+═══════════════════════════════════════════════════════════

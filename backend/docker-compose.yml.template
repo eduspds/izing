@@ -1,0 +1,75 @@
+version: "3"
+
+services:
+  redis:
+    container_name: "redis-INSTANCE_NAME"
+    image: "redis:alpine"
+    restart: always
+    command: redis-server --appendonly yes --replica-read-only no
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "REDIS_PORT:6379"
+    env_file:
+      - ./.env
+    volumes:
+      - ".data/redis:/data"
+
+  # database containers, one for each db
+  pg_fixPermissions:
+    image: "bitnami/postgresql:latest"
+    user: root
+    command: chown -R 1001:1001 /bitnami/postgresql
+    volumes:
+      - ".data/pg:/bitnami/postgresql/data"
+
+  postgres:
+    image: "bitnami/postgresql:latest"
+    restart: always
+    container_name: "psql-INSTANCE_NAME"
+    env_file:
+      - ./.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ".data/pg:/bitnami/postgresql/data"
+    ports:
+      - "POSTGRES_PORT:5432"
+    depends_on:
+      - pg_fixPermissions
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    hostname: rabbitmq
+    container_name: "rabbitmq-INSTANCE_NAME"
+    restart: always	
+    env_file:
+      - ./.env
+    volumes:
+      - .data/rabbitmq/data/:/var/lib/rabbitmq/
+      - .data/rabbitmq/logs/:/var/log/rabbitmq/log
+    ports:
+      - RABBITMQ_PORT:5672
+      - RABBITMQ_MANAGEMENT_PORT:15672
+
+  api:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    restart: always
+    container_name: "api_backup"
+    env_file:
+      - ./.env
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - redis
+      - postgres
+      - rabbitmq
+    ports:
+      - "API_PORT:3100"
+    volumes:
+      - .data/.baileys_auth:/app/.baileys_auth
+      - .data/medias:/app/public

@@ -1,0 +1,39 @@
+{
+  "presets": [
+    [
+      "@babel/preset-env",
+      {
+        "targets": {
+          "browsers": [
+            "last 10 Chrome versions",
+            "last 10 Firefox versions",
+            "last 4 Edge versions",
+            "last 7 Safari versions"
+          ]
+        },
+        "modules": false,
+        "useBuiltIns": "usage",
+        "corejs": 3
+      }
+    ]
+  ],
+  "plugins": [
+    "@babel/plugin-proposal-optional-chaining"
+  ],
+  "env": {
+    "development": {
+      "presets": [
+        [
+          "@babel/preset-env",
+          {
+            "targets": {
+              "browsers": ["last 1 Chrome versions"]
+            },
+            "modules": false,
+            "useBuiltIns": false
+          }
+        ]
+      ]
+    }
+  }
+}

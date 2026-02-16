@@ -1,0 +1,9 @@
+module.exports = [
+  {
+    script: "dist/server.js",
+    name: "CDL-IntegraCRM-Backend",
+    exec_mode: "cluster",
+    instances: 1,
+    watch: false
+  }
+];
