@@ -235,10 +235,8 @@ export default {
         this.listarUsuarios()
       }
     },
-    usuarioCriado (usuario) {
-      const obj = [...this.usuarios]
-      obj.push(usuario)
-      this.usuarios = [...obj]
+    usuarioCriado () {
+      this.listarUsuarios()
     },
     formatManagerQueues (managerQueues, row) {
       // Se for admin, mostra "Todas as filas"

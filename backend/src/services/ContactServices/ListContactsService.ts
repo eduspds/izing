@@ -55,6 +55,7 @@ const ListContactsService = async ({
       "Contact"."isUser",
       "Contact"."isWAContact",
       "Contact"."isGroup",
+      "Contact"."isBlocked",
       "Contact"."tenantId",
       "Contact"."createdAt",
       "Contact"."updatedAt",
@@ -82,6 +83,7 @@ const ListContactsService = async ({
       "Contact"."isUser",
       "Contact"."isWAContact",
       "Contact"."isGroup",
+      "Contact"."isBlocked",
       "Contact"."tenantId",
       "Contact"."createdAt",
       "Contact"."updatedAt"

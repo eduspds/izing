@@ -176,6 +176,30 @@ export const remove = async (
   return res.status(200).json({ message: "Contact deleted" });
 };
 
+/** Bloquear ou desbloquear contato. Apenas admin ou manager. */
+export const blockContact = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const profile = req.user.profile;
+  if (profile !== "admin" && profile !== "manager") {
+    throw new AppError("Apenas administradores e gerentes podem bloquear contatos.", 403);
+  }
+  const { contactId } = req.params;
+  const { blocked } = req.body as { blocked: boolean };
+  const { tenantId } = req.user;
+
+  if (typeof blocked !== "boolean") {
+    throw new AppError("O campo 'blocked' deve ser true ou false.", 400);
+  }
+
+  const contact = await ShowContactService({ id: contactId, tenantId });
+  if (!contact) throw new AppError("Contato não encontrado.", 404);
+
+  await contact.update({ isBlocked: blocked });
+  return res.status(200).json(contact);
+};
+
 export const updateContactTags = async (
   req: Request,
   res: Response

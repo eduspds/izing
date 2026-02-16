@@ -5,6 +5,7 @@ import CheckSettingsHelper from "../helpers/CheckSettings";
 import AppError from "../errors/AppError";
 
 import CreateUserService from "../services/UserServices/CreateUserService";
+import InviteUserService from "../services/UserServices/InviteUserService";
 import ListUsersService from "../services/UserServices/ListUsersService";
 import UpdateUserService from "../services/UserServices/UpdateUserService";
 import ShowUserService from "../services/UserServices/ShowUserService";
@@ -35,39 +36,45 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
 
 export const store = async (req: Request, res: Response): Promise<Response> => {
   const { tenantId } = req.user;
-  const { email, password, name, profile, managerQueues } = req.body;
-  const { users } = await ListUsersService({ tenantId });
+  const { email, password, name, profile, managerQueues, permissionIds } = req.body;
 
-  if (users.length >= Number(process.env.USER_LIMIT)) {
-          throw new AppError("ERR_USER_LIMIT_USER_CREATION", 400);
+  if (req.originalUrl?.includes("/signup") || req.path?.includes("signup")) {
+    if ((await CheckSettingsHelper("userCreation")) === "disabled") {
+      throw new AppError("ERR_USER_CREATION_DISABLED", 403);
+    }
+    const user = await CreateUserService({
+      email,
+      password,
+      name,
+      profile: profile || "user",
+      tenantId,
+      managerQueues: managerQueues || []
+    });
+    const io = getIO();
+    io.emit(`${tenantId}:user`, { action: "create", user });
+    return res.status(200).json(user);
   }
 
-  else if (
-    
-    req.url === "/signup" &&
-    (await CheckSettingsHelper("userCreation")) === "disabled"
-  ) {
-    throw new AppError("ERR_USER_CREATION_DISABLED", 403);
-  } else if (req.url !== "/signup" && req.user.profile !== "admin") {
+  if (req.user.profile !== "admin") {
     throw new AppError("ERR_NO_PERMISSION", 403);
   }
 
-  const user = await CreateUserService({
-    email,
-    password,
-    name,
-    profile,
-    tenantId,
-    managerQueues
+  const { users } = await ListUsersService({ tenantId });
+  if (users.length >= Number(process.env.USER_LIMIT)) {
+    throw new AppError("ERR_USER_LIMIT_USER_CREATION", 400);
+  }
+
+  const result = await InviteUserService({
+    email: email?.trim(),
+    profile: profile || "user",
+    permissionIds: permissionIds || [],
+    managerQueues: managerQueues || [],
+    tenantId
   });
 
   const io = getIO();
-  io.emit(`${tenantId}:user`, {
-    action: "create",
-    user
-  });
-
-  return res.status(200).json(user);
+  io.emit(`${tenantId}:user`, { action: "create", user: { id: result.id, email: result.email, accountStatus: result.accountStatus } });
+  return res.status(200).json(result);
 };
 
 export const show = async (req: Request, res: Response): Promise<Response> => {
@@ -83,15 +90,23 @@ export const update = async (
   req: Request,
   res: Response
 ): Promise<Response> => {
-  // if (req.user.profile !== "admin") {
-  //   throw new AppError("ERR_NO_PERMISSION", 403);
-  // }
-
   const { userId } = req.params;
   const userData = req.body;
   const { tenantId } = req.user;
+  const currentUserId = Number(req.user.id);
+  const targetUserId = Number(userId);
 
-  const user = await UpdateUserService({ userData, userId, tenantId });
+  if (req.user.profile !== "admin" && currentUserId !== targetUserId) {
+    throw new AppError("Você só pode alterar seus próprios dados.", 403);
+  }
+
+  const user = await UpdateUserService({
+    userData,
+    userId,
+    tenantId,
+    requestedBy: currentUserId,
+    isAdmin: req.user.profile === "admin"
+  });
 
   const io = getIO();
   io.emit(`${tenantId}:user`, {

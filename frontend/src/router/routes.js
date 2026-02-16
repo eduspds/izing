@@ -16,6 +16,7 @@ const routes = [
       { path: '/mensagens-rapidas', name: 'mensagens-rapidas', component: () => import('pages/mensagensRapidas/Index.vue') },
       { path: '/filas', name: 'filas', component: () => import('pages/filas/Index.vue') },
       { path: '/configuracoes', name: 'configuracoes', component: () => import('pages/configuracoes/Index.vue') },
+      { path: '/permissions', name: 'permissions', component: () => import('pages/permissions/Index.vue') },
       { path: '/etiquetas', name: 'etiquetas', component: () => import('pages/etiquetas/Index.vue') },
       { path: '/campanhas', name: 'campanhas', component: () => import('pages/campanhas/Index.vue') },
       { path: '/campanhas/:campanhaId', name: 'contatos-campanha', component: () => import('pages/campanhas/ContatosCampanha.vue') },
@@ -104,16 +105,20 @@ const routes = [
     ]
   },
 
-  // Always leave this as last one,
-  // but you can also remove it
   {
-    path: '*',
-    component: () => import('pages/Error404.vue')
+    path: '/invite',
+    name: 'invite',
+    component: () => import('pages/invite/AcceptInvite.vue')
   },
   {
     path: '/login',
     name: 'login',
     component: () => import('pages/Login.vue')
+  },
+  // Always leave this as last one
+  {
+    path: '*',
+    component: () => import('pages/Error404.vue')
   }
 ]
 

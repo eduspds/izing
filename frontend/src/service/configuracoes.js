@@ -9,8 +9,9 @@ export function ListarConfiguracoes (params) {
 }
 
 export function AlterarConfiguracao (data) {
+  const key = data.key || data.Key
   return request({
-    url: `/settings/${data.Key}/`,
+    url: `/settings/${key}/`,
     method: 'put',
     data
   })

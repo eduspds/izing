@@ -15,6 +15,7 @@ interface UserQueues {
 interface UserData {
   email?: string;
   password?: string;
+  currentPassword?: string;
   name?: string;
   profile?: string;
   queues?: UserQueues[];
@@ -25,6 +26,8 @@ interface Request {
   userData: UserData;
   userId: string | number;
   tenantId: string | number;
+  requestedBy?: number;
+  isAdmin?: boolean;
 }
 
 interface Response {
@@ -37,11 +40,12 @@ interface Response {
 const UpdateUserService = async ({
   userData,
   userId,
-  tenantId
+  tenantId,
+  requestedBy,
+  isAdmin = false
 }: Request): Promise<Response | undefined> => {
   const user = await User.findOne({
-    where: { id: userId, tenantId },
-    attributes: ["name", "id", "email", "profile"]
+    where: { id: userId, tenantId }
   });
 
   if (!user) {
@@ -52,24 +56,40 @@ const UpdateUserService = async ({
     name: Yup.string().min(2),
     email: Yup.string().email(),
     profile: Yup.string(),
-    password: Yup.string()
+    password: Yup.string().min(6),
+    currentPassword: Yup.string()
   });
 
-  const { email, password, profile, name, queues, managerQueues } = userData;
+  const { email, password, currentPassword, profile, name, queues, managerQueues } = userData;
+
+  if (password) {
+    if (!currentPassword) {
+      throw new AppError("Informe a senha atual para alterar a senha.", 400);
+    }
+    const isValid = await user.checkPassword(currentPassword);
+    if (!isValid) {
+      throw new AppError("Senha atual incorreta.", 400);
+    }
+  }
+
+  const allowedData: UserData = isAdmin
+    ? userData
+    : { name: userData.name, password: userData.password, currentPassword: userData.currentPassword };
+  const { email: emailVal, password: passwordVal, profile: profileVal, name: nameVal, queues: queuesVal, managerQueues: managerQueuesVal } = allowedData;
 
   // console.log('UpdateUserService - Dados recebidos:', { email, password, profile, name, queues, managerQueues });
   // console.log('UpdateUserService - tenantId do req.user:', tenantId);
 
   try {
-    await schema.validate({ email, password, profile, name });
+    await schema.validate({ email: emailVal, password: passwordVal, profile: profileVal, name: nameVal });
   } catch (err: unknown) {
     throw new AppError((err as Error)?.message);
   }
 
-  if (queues) {
+  if (isAdmin && queuesVal) {
     await UsersQueues.destroy({ where: { userId } });
     await Promise.all(
-      queues.map(async (queue: UserQueues | number) => {
+      queuesVal.map(async (queue: UserQueues | number) => {
         // Aceitar tanto objetos quanto números
         const queueId: number =
           typeof queue === "number" ? queue : queue?.id || queue?.queue || 0;
@@ -103,19 +123,19 @@ const UpdateUserService = async ({
     );
   }
 
-  // Gerenciar filas de gerente
-  if (managerQueues !== undefined) {
-    console.log("Gerenciando filas de gerente:", { profile, managerQueues });
+  // Gerenciar filas de gerente (apenas admin)
+  if (isAdmin && managerQueuesVal !== undefined) {
+    console.log("Gerenciando filas de gerente:", { profile: profileVal, managerQueues: managerQueuesVal });
     console.log("Removendo relacionamentos existentes para userId:", userId);
     await UserManagerQueues.destroy({ where: { userId } });
 
-    if (profile === "manager" && managerQueues.length > 0) {
+    if (profileVal === "manager" && managerQueuesVal.length > 0) {
       console.log(
         "Criando relacionamentos de gerente para filas:",
-        managerQueues
+        managerQueuesVal
       );
       await Promise.all(
-        managerQueues.map(async (queueId: number) => {
+        managerQueuesVal.map(async (queueId: number) => {
           const finalTenantId = Number(tenantId);
 
           // Validar se o departamento existe antes de criar o relacionamento
@@ -168,12 +188,15 @@ const UpdateUserService = async ({
     }
   }
 
-  await user.update({
-    email,
-    password,
-    profile,
-    name
-  });
+  const updatePayload: Record<string, unknown> = {
+    name: nameVal !== undefined ? nameVal : user.name
+  };
+  if (passwordVal) updatePayload.password = passwordVal;
+  if (isAdmin) {
+    if (emailVal !== undefined) updatePayload.email = emailVal;
+    if (profileVal !== undefined) updatePayload.profile = profileVal;
+  }
+  await user.update(updatePayload);
 
   await user.reload({
     attributes: ["id", "name", "email", "profile"],

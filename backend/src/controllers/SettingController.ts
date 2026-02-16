@@ -6,15 +6,22 @@ import AppError from "../errors/AppError";
 import UpdateSettingService from "../services/SettingServices/UpdateSettingService";
 import ListSettingsService from "../services/SettingServices/ListSettingsService";
 
+const MAIL_PASS_KEY = "mailPass";
+
 export const index = async (req: Request, res: Response): Promise<Response> => {
-  // if (req.user.profile !== "admin") {
-  //   throw new AppError("ERR_NO_PERMISSION", 403);
-  // }
   const { tenantId } = req.user;
 
   const settings = await ListSettingsService(tenantId);
+  const safe = settings.map((s: { key: string; value: string; toJSON: () => object }) => {
+    const json = s.toJSON ? s.toJSON() : { ...s };
+    const out = json as { key: string; value: string };
+    if (out.key === MAIL_PASS_KEY && out.value) {
+      out.value = "••••••••";
+    }
+    return out;
+  });
 
-  return res.status(200).json(settings);
+  return res.status(200).json(safe);
 };
 
 export const update = async (

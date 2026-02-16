@@ -25,6 +25,8 @@ import Tenant from "./Tenant";
 import Contact from "./Contact";
 import TicketKanban from "./TicketKanban";
 import TicketKanbanUser from "./TicketKanbanUser";
+import Permission from "./Permission";
+import UserPermission from "./UserPermission";
 
 @Table
 class User extends Model<User> {
@@ -41,6 +43,18 @@ class User extends Model<User> {
 
   @Column
   status: string;
+
+  @Default("ACTIVE")
+  @Column
+  accountStatus: string;
+
+  @AllowNull
+  @Column
+  resetPasswordToken: string;
+
+  @AllowNull
+  @Column
+  resetPasswordExpires: Date;
 
   @Column(DataType.VIRTUAL)
   password: string;
@@ -126,6 +140,9 @@ class User extends Model<User> {
   // Relacionamento com TicketKanban
   @BelongsToMany(() => TicketKanban, () => TicketKanbanUser, "userId", "ticketKanbanId")
   ticketKanbans: TicketKanban[];
+
+  @BelongsToMany(() => Permission, () => UserPermission, "userId", "permissionId")
+  permissions: Permission[];
 }
 
 export default User;

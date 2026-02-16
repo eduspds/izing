@@ -12,7 +12,8 @@
     "test": "NODE_ENV=test jest",
     "posttest": "NODE_ENV=test sequelize db:migrate:undo:all",
     "db:migrate": "rm -Rf dist && npm run build && npx sequelize db:migrate",
-    "db:seed": "npx sequelize db:seed:all"
+    "db:seed": "npx sequelize db:seed:all",
+    "db:seed:permissions": "npx sequelize db:seed --seed 20260216100000-seed-permissions.js"
   },
   "engines": {
     "node": ">=18"
@@ -56,6 +57,7 @@
     "multer": "^1.4.2",
     "mustache": "^4.2.0",
     "newrelic": "^8.16.0",
+    "nodemailer": "^6.10.1",
     "pg": "^8.4.1",
     "pino": "^6.10.0",
     "pino-http": "^5.6.0",

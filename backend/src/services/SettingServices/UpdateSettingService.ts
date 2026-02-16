@@ -1,4 +1,3 @@
-import AppError from "../../errors/AppError";
 import Setting from "../../models/Setting";
 
 interface Request {
@@ -11,16 +10,17 @@ const UpdateSettingService = async ({
   key,
   value,
   tenantId
-}: Request): Promise<Setting | undefined> => {
-  const setting = await Setting.findOne({
+}: Request): Promise<Setting> => {
+  let setting = await Setting.findOne({
     where: { key, tenantId }
   });
 
+  const valueStr = value != null ? String(value) : "";
   if (!setting) {
-    throw new AppError("ERR_NO_SETTING_FOUND", 404);
+    setting = await Setting.create({ key, value: valueStr, tenantId });
+  } else {
+    await setting.update({ value: valueStr });
   }
-
-  await setting.update({ value });
 
   return setting;
 };

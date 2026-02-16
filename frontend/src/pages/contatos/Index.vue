@@ -38,7 +38,7 @@
         </div>
         <q-space />
         <q-input
-          v-if="!isImportCSV"
+          v-if="!isImportXLSX"
           :class="{
           'order-last q-mt-md': $q.screen.width < 500
         }"
@@ -146,6 +146,11 @@
           </q-avatar>
         </q-td>
       </template>
+      <template v-slot:body-cell-isBlocked="props">
+        <q-td class="text-center">
+          <q-badge v-if="props.row.isBlocked" color="negative" label="Bloqueado" />
+        </q-td>
+      </template>
       <template v-slot:body-cell-acoes="props">
         <q-td class="text-center">
           <q-btn
@@ -176,6 +181,16 @@
             @click="editContact(props.row.id)"
           />
           <q-btn
+            v-if="isAdmin || isManager"
+            flat
+            round
+            :icon="props.row.isBlocked ? 'mdi-lock-open' : 'mdi-block-helper'"
+            :color="props.row.isBlocked ? 'positive' : 'negative'"
+            @click="toggleBlockContact(props.row)"
+          >
+            <q-tooltip>{{ props.row.isBlocked ? 'Desbloquear contato' : 'Bloquear contato (não receberá mais mensagens)' }}</q-tooltip>
+          </q-btn>
+          <q-btn
             flat
             round
             icon="mdi-delete"
@@ -199,7 +214,7 @@
 <script>
 const userId = +localStorage.getItem('userId')
 import { CriarTicket, AtualizarStatusTicket } from 'src/service/tickets'
-import { ListarContatos, ImportarArquivoContato, DeletarContato, SyncronizarContatos, ExportarArquivoContato } from 'src/service/contatos'
+import { ListarContatos, ImportarArquivoContato, DeletarContato, SyncronizarContatos, ExportarArquivoContato, BloquearContato } from 'src/service/contatos'
 import ContatoModal from './ContatoModal'
 import { mapGetters } from 'vuex'
 export default {
@@ -214,7 +229,7 @@ export default {
     }
   },
   computed: {
-    ...mapGetters(['whatsapps'])
+    ...mapGetters(['whatsapps', 'isAdmin', 'isManager'])
   },
   data () {
     return {
@@ -281,6 +296,7 @@ export default {
           }
         },
         { name: 'email', label: 'Email', field: 'email', style: 'width: 500px', align: 'left' },
+        { name: 'isBlocked', label: 'Status', field: 'isBlocked', align: 'center', style: 'width: 90px', format: (v) => v ? 'Bloqueado' : '' },
         { name: 'acoes', label: 'Ações', field: 'acoes', align: 'center' }
       ]
     }
@@ -655,6 +671,23 @@ export default {
     editContact (contactId) {
       this.selectedContactId = contactId
       this.modalContato = true
+    },
+    async toggleBlockContact (row) {
+      const novoEstado = !row.isBlocked
+      const acao = novoEstado ? 'bloquear' : 'desbloquear'
+      try {
+        await BloquearContato(row.id, novoEstado)
+        const idx = this.contacts.findIndex(c => c.id === row.id)
+        if (idx !== -1) this.contacts.splice(idx, 1, { ...row, isBlocked: novoEstado })
+        this.$q.notify({
+          type: 'positive',
+          progress: true,
+          position: 'top',
+          message: novoEstado ? 'Contato bloqueado. Mensagens desse número não abrirão atendimentos.' : 'Contato desbloqueado.'
+        })
+      } catch (error) {
+        this.$notificarErro(`Não foi possível ${acao} o contato`, error)
+      }
     },
     deleteContact (contactId) {
       this.$q.dialog({

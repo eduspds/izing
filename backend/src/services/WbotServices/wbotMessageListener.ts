@@ -85,10 +85,23 @@ const wbotMessageListener = (wbot: BaileysSession): void => {
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return;
+    const whatsapp = await Whatsapp.findByPk(wbot.id, { attributes: ["number"] }).catch(() => null);
+    const sessionNumberNorm = (whatsapp as any)?.number ? String((whatsapp as any).number).replace(/\D/g, "") : "";
+    const norm = (n: string) => (n || "").replace(/\D/g, "");
+
     for (const msg of messages) {
       const key = msg.key;
       if (key.fromMe && !key.remoteJid) continue;
       if (key.remoteJid === "status@broadcast") continue;
+      // Evitar abrir ticket para o próprio número conectado (chat direto consigo mesmo ou eco)
+      if (sessionNumberNorm && key.remoteJid && !key.remoteJid.endsWith("@g.us")) {
+        const remoteNum = key.remoteJid.replace(/@.*$/, "");
+        if (norm(remoteNum) === sessionNumberNorm) {
+          logger.info(`[LISTENER] Ignorando mensagem do próprio número conectado (evita ticket): ${remoteNum}`);
+          continue;
+        }
+      }
+
       const fullMsg = { ...msg, key, message: msg.message };
       const adapter = buildBaileysMessageAdapter(
         fullMsg as any,

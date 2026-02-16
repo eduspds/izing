@@ -84,3 +84,12 @@ export function EditarCarteiraContato (contactId, wallets) {
     data
   })
 }
+
+/** Bloquear ou desbloquear contato (apenas admin/gerente). blocked: true | false */
+export function BloquearContato (contactId, blocked) {
+  return request({
+    url: `/contacts/${contactId}/block`,
+    method: 'put',
+    data: { blocked }
+  })
+}

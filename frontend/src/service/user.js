@@ -67,3 +67,21 @@ export function VerificarPodeSerInativado (userId) {
     method: 'get'
   })
 }
+
+/** Convite: validar token (rota pública). */
+export function ValidarTokenConvite (token) {
+  return request({
+    url: '/auth/invite/validate',
+    method: 'get',
+    params: { token }
+  })
+}
+
+/** Convite: aceitar e definir nome/senha (rota pública). */
+export function AceitarConvite (data) {
+  return request({
+    url: '/auth/invite/accept',
+    method: 'post',
+    data
+  })
+}

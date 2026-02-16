@@ -5,66 +5,135 @@
     @hide="fecharModal"
     @show="abrirModal"
   >
-    <q-card style="width: 600px">
+    <q-card class="rounded-xl" style="width: 600px">
       <q-card-section>
-        <div class="text-h6">{{ usuario.id ? 'Editar Usuário' : 'Cadastrar Usuário' }}</div>
+        <div class="text-h6">{{ usuario.id ? 'Editar Usuário' : (isProfile ? 'Meu perfil' : 'Convidar usuário') }}</div>
       </q-card-section>
       <q-card-section class="q-col-gutter-sm">
-        <div class="row q-col-gutter-sm">
-          <div class="col-5">
-            <c-input
+        <!-- Convidar: apenas e-mail, perfil e filas -->
+        <template v-if="!usuario.id && !isProfile">
+          <div class="row q-col-gutter-sm">
+            <div class="col-12">
+              <c-input
+                outlined
+                :validator="$v.usuario.email"
+                @blur="$v.usuario.email.$touch"
+                v-model.trim="usuario.email"
+                label="E-mail do convidado"
+              />
+            </div>
+          </div>
+          <div class="row q-col-gutter-sm q-mt-sm">
+            <div class="col-12">
+              <q-select
+                outlined
+                v-model="usuario.profile"
+                :options="optionsProfile"
+                option-value="value"
+                option-label="label"
+                emit-value
+                map-options
+                label="Perfil"
+              />
+            </div>
+          </div>
+          <div v-if="usuario.profile === 'manager'" class="q-mt-md">
+            <div class="text-subtitle2 q-mb-sm">Departamentos que o Gerente pode gerenciar:</div>
+            <q-select
               outlined
-              v-model.trim="usuario.name"
-              :validator="$v.usuario.name"
-              @blur="$v.usuario.name.$touch"
-              label="Nome"
+              v-model="usuario.managerQueues"
+              :options="filasAtivas"
+              option-value="id"
+              option-label="queue"
+              emit-value
+              map-options
+              multiple
+              chips
+              label="Selecione os departamentos"
+              :rules="[val => val && val.length > 0 || 'Selecione pelo menos um departamento']"
             />
           </div>
-          <div class="col-7">
+        </template>
+        <!-- Editar ou Perfil: nome, e-mail, perfil, filas -->
+        <template v-else>
+          <div class="row q-col-gutter-sm">
+            <div class="col-5">
+              <c-input
+                outlined
+                v-model.trim="usuario.name"
+                :validator="$v.usuario.name"
+                @blur="$v.usuario.name.$touch"
+                label="Nome"
+              />
+            </div>
+            <div class="col-7">
+              <c-input
+                outlined
+                :disable="isProfile"
+                :validator="$v.usuario.email"
+                @blur="$v.usuario.email.$touch"
+                v-model.trim="usuario.email"
+                label="E-mail"
+              />
+            </div>
+          </div>
+          <div class="row q-col-gutter-sm" v-if="!isProfile">
+            <div class="col-5">
+              <q-select
+                outlined
+                v-model="usuario.profile"
+                :options="optionsProfile"
+                option-value="value"
+                option-label="label"
+                emit-value
+                map-options
+                label="Perfil"
+              />
+            </div>
+            <div class="col-7" />
+          </div>
+          <!-- Alterar senha (apenas no perfil) -->
+          <div v-if="isProfile" class="q-mt-md rounded-xl q-pa-md change-password-block">
+            <div class="text-subtitle2 q-mb-sm">Alterar senha</div>
             <c-input
               outlined
-              :validator="$v.usuario.email"
-              @blur="$v.usuario.email.$touch"
-              v-model.trim="usuario.email"
-              label="E-mail"
-            />
-          </div>
-        </div>
-        <div class="row q-col-gutter-sm">
-          <div class="col-5">
+              v-model="usuario.currentPassword"
+              :type="isPwdCurrent ? 'password' : 'text'"
+              label="Senha atual"
+              class="q-mb-sm"
+            >
+              <template v-slot:append>
+                <q-icon :name="isPwdCurrent ? 'visibility_off' : 'visibility'" class="cursor-pointer" @click="isPwdCurrent = !isPwdCurrent" />
+              </template>
+            </c-input>
             <c-input
               outlined
               v-model="usuario.password"
-              :validator="$v.usuario.password"
-              @blur="$v.usuario.password.$touch"
+              :validator="$v.usuario.passwordNew"
+              @blur="$v.usuario.passwordNew.$touch"
               :type="isPwd ? 'password' : 'text'"
-              label="Senha"
+              label="Nova senha"
+              class="q-mb-sm"
             >
               <template v-slot:append>
-                <q-icon
-                  :name="isPwd ? 'visibility_off' : 'visibility'"
-                  class="cursor-pointer"
-                  @click="isPwd = !isPwd"
-                />
+                <q-icon :name="isPwd ? 'visibility_off' : 'visibility'" class="cursor-pointer" @click="isPwd = !isPwd" />
+              </template>
+            </c-input>
+            <c-input
+              outlined
+              v-model="usuario.confirmPassword"
+              :validator="$v.usuario.confirmPassword"
+              @blur="$v.usuario.confirmPassword.$touch"
+              :type="isPwdConfirm ? 'password' : 'text'"
+              label="Confirmar nova senha"
+            >
+              <template v-slot:append>
+                <q-icon :name="isPwdConfirm ? 'visibility_off' : 'visibility'" class="cursor-pointer" @click="isPwdConfirm = !isPwdConfirm" />
               </template>
             </c-input>
           </div>
-          <div class="col-7">
-            <q-select
-              :disable="isProfile"
-              outlined
-              v-model="usuario.profile"
-              :options="optionsProfile"
-              option-value="value"
-              option-label="label"
-              emit-value
-              map-options
-              label="Perfil"
-            />
-          </div>
-        </div>
-        <!-- Seção para Gerente - Seleção de Filas -->
-        <div v-if="usuario.profile === 'manager'" class="q-mt-md">
+          <!-- Seção para Gerente - Seleção de Filas -->
+          <div v-if="!isProfile && usuario.profile === 'manager'" class="q-mt-md">
           <div class="text-subtitle2 q-mb-sm">Departamentos que o Gerente pode gerenciar:</div>
           <q-select
             outlined
@@ -79,25 +148,20 @@
             label="Selecione os departamentos"
             :rules="[val => val && val.length > 0 || 'Selecione pelo menos um departamento']"
           />
-        </div>
+          </div>
+        </template>
       </q-card-section>
       <q-card-actions align="right">
+        <q-btn label="Sair" class="q-px-md q-mr-sm rounded-xl" color="negative" v-close-popup />
         <q-btn
-          label="Sair"
-          class="q-px-md q-mr-sm"
-          color="negative"
-          v-close-popup
-        />
-        <q-btn
-          label="Salvar"
-          class="q-px-md"
+          :label="(usuario.id || isProfile) ? 'Salvar' : 'Enviar convite'"
+          class="q-px-md rounded-xl"
           color="primary"
           @click="handleUsuario"
         />
       </q-card-actions>
     </q-card>
   </q-dialog>
-
 </template>
 
 <script>
@@ -123,6 +187,8 @@ export default {
   data () {
     return {
       isPwd: false,
+      isPwdCurrent: false,
+      isPwdConfirm: false,
       filasAtivas: [],
       optionsProfile: [
         { value: 'user', label: 'Usuário' },
@@ -133,25 +199,37 @@ export default {
         name: '',
         email: '',
         password: '',
+        currentPassword: '',
+        confirmPassword: '',
         profile: 'user',
         managerQueues: []
       }
     }
   },
   validations () {
-    let usuario = {
+    const base = {
       name: { required, minLength: minLength(3), maxLength: maxLength(50) },
       email: { required, email },
       profile: { required },
-      password: {}
+      password: {},
+      currentPassword: {},
+      confirmPassword: {},
+      passwordNew: { minLength: minLength(6), maxLength: maxLength(50) }
     }
-    if (!this.usuario.id) {
-      usuario = {
-        ...usuario,
-        password: { required, minLength: minLength(6), maxLength: maxLength(50) }
+    if (!this.usuario.id && !this.isProfile) {
+      return { usuario: { email: base.email, profile: base.profile } }
+    }
+    if (this.isProfile) {
+      return {
+        usuario: {
+          name: base.name,
+          email: base.email,
+          passwordNew: base.passwordNew,
+          confirmPassword: { sameAsPassword (v) { return v === this.usuario.password } }
+        }
       }
     }
-    return { usuario }
+    return { usuario: { name: base.name, email: base.email, profile: base.profile } }
   },
   methods: {
     async carregarFilasAtivas () {
@@ -189,10 +267,14 @@ export default {
         name: '',
         email: '',
         password: '',
+        currentPassword: '',
+        confirmPassword: '',
         profile: 'user',
         managerQueues: []
       }
       this.isPwd = false
+      this.isPwdCurrent = false
+      this.isPwdConfirm = false
       this.$v.usuario.$reset()
     },
     async handleUsuario () {
@@ -211,7 +293,7 @@ export default {
         })
       }
 
-      // Validação específica para gerentes (apenas quando está criando/atribuindo como gerente)
+      // Validação específica para gerentes
       if (this.usuario.profile === 'manager' && (!this.usuario.managerQueues || this.usuario.managerQueues.length === 0)) {
         return this.$q.notify({
           type: 'warning',
@@ -219,98 +301,121 @@ export default {
           position: 'top',
           textColor: 'black',
           message: 'Gerente deve ter pelo menos uma fila atribuída!',
-          actions: [{
-            icon: 'close',
-            round: true,
-            color: 'white'
-          }]
+          actions: [{ icon: 'close', round: true, color: 'white' }]
         })
+      }
+
+      // Alterar senha no perfil: exigir senha atual e nova + confirmação
+      if (this.isProfile && (this.usuario.password || this.usuario.confirmPassword)) {
+        if (!this.usuario.currentPassword) {
+          return this.$q.notify({
+            type: 'warning',
+            progress: true,
+            position: 'top',
+            message: 'Informe a senha atual para alterar a senha.'
+          })
+        }
+        this.$v.usuario.passwordNew.$touch()
+        this.$v.usuario.confirmPassword.$touch()
+        if (this.$v.usuario.passwordNew.$error || this.$v.usuario.confirmPassword.$error) {
+          return this.$q.notify({
+            type: 'warning',
+            progress: true,
+            position: 'top',
+            message: 'Nova senha: mínimo 6 caracteres e confirmação deve coincidir.'
+          })
+        }
       }
 
       try {
         if (this.usuario.id) {
-          const {
-            email, id, name, password
-          } = this.usuario
-
-          const params = {
-            email,
-            id,
-            name,
-            password
-          }
-
-          // Verificar se usuário tem permissão para alterar perfis
           const isAdmin = this.$store.state.user.isAdmin ||
                          this.$store.state.user.isSuporte ||
                          localStorage.getItem('profile') === 'admin'
-
-          // Se não for admin e não for suporte, forçar relogin
-          if (!isAdmin && !this.$store.state.user.isSuporte) {
+          if (!isProfile && !isAdmin && !this.$store.state.user.isSuporte) {
             this.$q.notify({
               type: 'warning',
               progress: true,
               position: 'top',
-              message: 'Sessão expirada. Redirecionando para login...',
-              actions: [{
-                icon: 'close',
-                round: true,
-                color: 'white'
-              }]
+              message: 'Sessão expirada. Redirecionando para login...'
             })
-
-            // Limpar dados e redirecionar para login
             localStorage.clear()
             this.$router.push('/login')
             return
           }
 
-          if (isAdmin) {
-            params.profile = this.usuario.profile
-            // Sempre enviar managerQueues, mesmo que seja lista vazia para limpar relacionamentos
-            if (this.usuario.profile === 'manager') {
-              // Extrair apenas os IDs das filas
-              params.managerQueues = this.usuario.managerQueues.map(queue =>
-                typeof queue === 'object' ? queue.id : queue
-              )
-              console.log('ManagerQueues originais:', this.usuario.managerQueues)
-              console.log('ManagerQueues IDs extraídos:', params.managerQueues)
-            } else {
-              params.managerQueues = []
-            }
+          const params = {
+            email: this.usuario.email,
+            name: this.usuario.name
           }
+          if (isProfile) {
+            if (this.usuario.password) {
+              params.currentPassword = this.usuario.currentPassword
+              params.password = this.usuario.password
+            }
+          } else if (isAdmin) {
+            params.profile = this.usuario.profile
+            params.managerQueues = this.usuario.profile === 'manager'
+              ? (this.usuario.managerQueues || []).map(q => typeof q === 'object' ? q.id : q)
+              : []
+          }
+
           const { data } = await UpdateUsuarios(this.usuario.id, params)
           this.$emit('modalUsuario:usuario-editado', data)
-          this.$q.notify({
-            type: 'info',
-            progress: true,
-            position: 'top',
-            textColor: 'black',
-            message: 'Usuário editado!',
-            actions: [{
-              icon: 'close',
-              round: true,
-              color: 'white'
-            }]
-          })
-        } else {
-          const { data } = await CriarUsuario(this.usuario)
-          this.$emit('modalUsuario:usuario-criado', data)
           this.$q.notify({
             type: 'positive',
             progress: true,
             position: 'top',
-            message: 'Usuário criado!',
-            actions: [{
-              icon: 'close',
-              round: true,
-              color: 'white'
-            }]
+            message: this.isProfile ? 'Perfil atualizado!' : 'Usuário editado!'
           })
+        } else {
+          const { data } = await CriarUsuario({
+            email: this.usuario.email.trim(),
+            profile: this.usuario.profile,
+            managerQueues: (this.usuario.managerQueues || []).map(q => typeof q === 'object' ? q.id : q)
+          })
+          this.$emit('modalUsuario:usuario-criado', data)
+          if (data.inviteLink) {
+            const link = data.inviteLink
+            const msg = 'Copie o link abaixo e envie ao convidado (por WhatsApp, e-mail, etc.).<br><br><strong>Link do convite:</strong><br><span style="word-break: break-all; font-size: 12px;">' + link + '</span>'
+            this.$q.dialog({
+              title: 'Convite criado',
+              message: msg,
+              html: true,
+              ok: { label: 'Copiar link', color: 'primary' },
+              cancel: 'Fechar',
+              persistent: true
+            }).onOk(() => {
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(link)
+                this.$q.notify({ type: 'positive', message: 'Link copiado!', position: 'top', timeout: 2000 })
+              }
+            })
+            this.$q.notify({
+              type: 'positive',
+              progress: true,
+              position: 'top',
+              message: data.message || 'Convite criado. Copie o link e envie ao convidado.'
+            })
+          } else {
+            this.$q.notify({
+              type: 'positive',
+              progress: true,
+              position: 'top',
+              message: data.message || 'Convite enviado por e-mail!'
+            })
+          }
         }
         this.$emit('update:modalUsuario', false)
       } catch (error) {
-        console.error(error)
+        const res = error?.response || error
+        const msg = res?.data?.error || 'Erro ao salvar.'
+        this.$q.notify({
+          type: 'negative',
+          progress: true,
+          position: 'top',
+          message: msg
+        })
       }
     }
   }

@@ -34,6 +34,11 @@ const AuthUserService = async ({
     throw new AppError("ERR_INVALID_CREDENTIALS", 401);
   }
 
+  const accountStatus = (user as any).accountStatus;
+  if (accountStatus === "PENDING") {
+    throw new AppError("Conta pendente. Acesse o link do convite no e-mail para ativar.", 403);
+  }
+
   if (!(await user.checkPassword(password))) {
     throw new AppError("ERR_INVALID_CREDENTIALS", 401);
   }

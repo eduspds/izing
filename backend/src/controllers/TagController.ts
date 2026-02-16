@@ -18,10 +18,6 @@ interface TagData {
 
 export const store = async (req: Request, res: Response): Promise<Response> => {
   const { tenantId } = req.user;
-  if (req.user.profile !== "admin" && req.user.profile !== "manager") {
-    throw new AppError("ERR_NO_PERMISSION", 403);
-  }
-
   const newTag: TagData = { ...req.body, userId: req.user.id, tenantId };
 
   const schema = Yup.object().shape({
@@ -61,10 +57,6 @@ export const update = async (
   res: Response
 ): Promise<Response> => {
   const { tenantId } = req.user;
-
-  if (req.user.profile !== "admin" && req.user.profile !== "manager") {
-    throw new AppError("ERR_NO_PERMISSION", 403);
-  }
   const tagData: TagData = { ...req.body, userId: req.user.id, tenantId };
 
   const schema = Yup.object().shape({
@@ -95,9 +87,6 @@ export const remove = async (
   res: Response
 ): Promise<Response> => {
   const { tenantId, id: userId } = req.user;
-  if (req.user.profile !== "admin" && req.user.profile !== "manager") {
-    throw new AppError("ERR_NO_PERMISSION", 403);
-  }
   const { tagId } = req.params;
 
   await DeleteTagService({ id: tagId, tenantId, userId: Number(userId) });

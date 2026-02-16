@@ -153,19 +153,7 @@
           >
             Menu
           </q-item-label> -->
-          <EssentialLink v-for="item in menuData" :key="item.title" v-bind="item" />
-          <div v-if="userProfile === 'manager'">
-            <q-separator spaced />
-            <div class="q-mb-lg"></div>
-            <!-- <q-item-label header>Gerenciamento</q-item-label> -->
-            <EssentialLink v-for="item in menuDataManager" :key="item.title" v-bind="item" />
-          </div>
-          <div v-if="userProfile === 'admin'">
-            <q-separator spaced />
-            <div class="q-mb-lg"></div>
-            <!-- <q-item-label header>Administração</q-item-label> -->
-            <EssentialLink v-for="item in menuDataAdmin" v-if="exibirMenuBeta(item)" :key="item.title" v-bind="item" />
-          </div>
+          <EssentialLink v-for="item in menuDataFiltered" v-if="exibirMenuBeta(item)" :key="item.title" v-bind="item" />
 
         </q-list>
       </q-scroll-area>
@@ -231,134 +219,27 @@ const SUPPORT_NUMBER = '557196205926'
 const SUPPORT_NAME = 'Suporte Cognos'
 const SUPPORT_CHANNEL = 'whatsapp'
 
-const objMenu = [
-  {
-    title: 'Dashboard',
-    caption: '',
-    icon: 'mdi-home-analytics',
-    routeName: 'home-dashboard'
-  },
-  {
-    title: 'Atendimentos',
-    caption: 'Lista de atendimentos',
-    icon: 'mdi-chat',
-    routeName: 'atendimento'
-  },
-  {
-    title: 'Contatos',
-    caption: 'Lista de contatos',
-    icon: 'mdi-contacts',
-    routeName: 'contatos'
-  },
-  {
-    title: 'Versões Publicadas',
-    caption: 'Histórico de atualizações do sistema',
-    icon: 'mdi-update',
-    routeName: 'releases'
-  },
-  {
-    title: 'Kanban',
-    caption: 'Gerenciamento de atendimentos',
-    icon: 'mdi-trello',
-    routeName: 'kanban'
-  }
-]
-
-const objMenuManager = [
-  {
-    title: 'Mensagens Rápidas',
-    caption: 'Mensagens pré-definidas',
-    icon: 'mdi-reply-all-outline',
-    routeName: 'mensagens-rapidas'
-  },
-  {
-    title: 'Etiquetas',
-    caption: 'Cadastro de etiquetas',
-    icon: 'mdi-tag-text',
-    routeName: 'etiquetas'
-  }
-]
-
-const objMenuAdmin = [
-  {
-    title: 'Painel Atendimentos',
-    caption: 'Visão geral dos atendimentos',
-    icon: 'mdi-view-dashboard-variant',
-    routeName: 'painel-atendimentos'
-  },
-  {
-    title: 'Relatórios',
-    caption: 'Relatórios gerais',
-    icon: 'mdi-file-chart',
-    routeName: 'relatorios'
-  },
-  {
-    title: 'Mensagens Rápidas',
-    caption: 'Mensagens pré-definidas',
-    icon: 'mdi-reply-all-outline',
-    routeName: 'mensagens-rapidas'
-  },
-  {
-    title: 'Fluxo',
-    caption: 'Robô de atendimento',
-    icon: 'mdi-robot-happy',
-    routeName: 'chat-flow'
-  },
-  {
-    title: 'Etiquetas',
-    caption: 'Cadastro de etiquetas',
-    icon: 'mdi-tag-text',
-    routeName: 'etiquetas'
-  },
-  {
-    title: 'Conexões',
-    caption: 'Conexões',
-    icon: 'mdi-remote-desktop',
-    routeName: 'sessoes'
-  },
-  {
-    title: 'Usuarios',
-    caption: 'Admin de usuários',
-    icon: 'mdi-account-group',
-    routeName: 'usuarios'
-  },
-  {
-    title: 'Departamentos',
-    caption: 'Gerenciamento de Departamentos',
-    icon: 'mdi-arrow-decision-outline',
-    routeName: 'filas'
-  },
-  {
-    title: 'Motivos de Encerramento',
-    caption: 'Cadastro de motivos de encerramento',
-    icon: 'mdi-close-circle-outline',
-    routeName: 'motivos-encerramento'
-  },
-  {
-    title: 'Campanha',
-    caption: 'Campanhas de envio',
-    icon: 'mdi-message-bookmark-outline',
-    routeName: 'campanhas'
-  },
-  {
-    title: 'Horário de Atendimento',
-    caption: 'Horário de funcionamento',
-    icon: 'mdi-calendar-clock',
-    routeName: 'horarioAtendimento'
-  },
-  {
-    title: 'Configurações',
-    caption: 'Configurações gerais',
-    icon: 'mdi-cog',
-    routeName: 'configuracoes'
-  },
-  {
-    title: 'API',
-    caption: 'Integração sistemas externos',
-    icon: 'mdi-call-split',
-    routeName: 'api-service',
-    isBeta: true
-  }
+// Menu único na ordem definida (dashboard → atendimento → … → configurações)
+const fullMenuOrder = [
+  { title: 'Dashboard', caption: '', icon: 'mdi-home-analytics', routeName: 'home-dashboard', permission: 'dashboard-all-view' },
+  { title: 'Atendimentos', caption: 'Lista de atendimentos', icon: 'mdi-chat', routeName: 'atendimento', permission: 'atendimento-access' },
+  { title: 'Contatos', caption: 'Lista de contatos', icon: 'mdi-contacts', routeName: 'contatos', permission: 'contacts-access' },
+  { title: 'Versões Publicadas', caption: 'Histórico de atualizações do sistema', icon: 'mdi-update', routeName: 'releases', permission: 'releases-access' },
+  { title: 'Kanban', caption: 'Gerenciamento de atendimentos', icon: 'mdi-trello', routeName: 'kanban', permission: 'kanban-access' },
+  { title: 'Painel de Atendimento', caption: 'Visão geral dos atendimentos', icon: 'mdi-view-dashboard-variant', routeName: 'painel-atendimentos', permission: 'dashboard-all-view' },
+  { title: 'Relatórios', caption: 'Relatórios gerais', icon: 'mdi-file-chart', routeName: 'relatorios', permission: 'reports-access' },
+  { title: 'Mensagens Rápidas', caption: 'Mensagens pré-definidas', icon: 'mdi-reply-all-outline', routeName: 'mensagens-rapidas', permission: 'quick-messages-access' },
+  { title: 'Fluxo', caption: 'Robô de atendimento', icon: 'mdi-robot-happy', routeName: 'chat-flow', permission: 'chat-flow-access' },
+  { title: 'Etiquetas', caption: 'Cadastro de etiquetas', icon: 'mdi-tag-text', routeName: 'etiquetas', permission: 'tags-access' },
+  { title: 'Conexões', caption: 'Conexões WhatsApp', icon: 'mdi-remote-desktop', routeName: 'sessoes', permission: 'sessions-access' },
+  { title: 'Usuários', caption: 'Admin de usuários', icon: 'mdi-account-group', routeName: 'usuarios', permission: 'users-access' },
+  { title: 'Permissões', caption: 'Gestão de permissões por usuário', icon: 'mdi-shield-account', routeName: 'permissions', permission: 'permissions-access' },
+  { title: 'Departamentos', caption: 'Gerenciamento de Departamentos', icon: 'mdi-arrow-decision-outline', routeName: 'filas', permission: 'queues-access' },
+  { title: 'Campanha', caption: 'Campanhas de envio', icon: 'mdi-message-bookmark-outline', routeName: 'campanhas', permission: 'campaigns-access' },
+  { title: 'Motivos de Encerramento', caption: 'Cadastro de motivos de encerramento', icon: 'mdi-close-circle-outline', routeName: 'motivos-encerramento', permission: 'closing-reasons-access' },
+  { title: 'Horário de Atendimento', caption: 'Horário de funcionamento', icon: 'mdi-calendar-clock', routeName: 'horarioAtendimento', permission: 'schedule-access' },
+  { title: 'Configurações', caption: 'Configurações gerais', icon: 'mdi-cog', routeName: 'configuracoes', permission: 'settings-access' },
+  { title: 'API', caption: 'Integração sistemas externos', icon: 'mdi-call-split', routeName: 'api-service', permission: 'api-service-access', isBeta: true }
 ]
 
 export default {
@@ -379,9 +260,7 @@ export default {
       alertSound,
       chatInternoSound,
       leftDrawerOpen: false,
-      menuData: objMenu,
-      menuDataManager: objMenuManager,
-      menuDataAdmin: objMenuAdmin,
+      menuData: fullMenuOrder,
       countTickets: 0,
       ticketsList: [],
       socketListeners: [], // ✅ NOVO: Controlar listeners
@@ -411,14 +290,17 @@ export default {
     },
     cObjMenu () {
       if (this.cProblemaConexao) {
-        return objMenu.map(menu => {
+        return fullMenuOrder.map(menu => {
           if (menu.routeName === 'sessoes') {
-            menu.color = 'negative'
+            return { ...menu, color: 'negative' }
           }
           return menu
         })
       }
-      return objMenu
+      return fullMenuOrder
+    },
+    menuDataFiltered () {
+      return this.filterByPermission(this.menuData)
     }
   },
 
@@ -434,6 +316,7 @@ export default {
     this.atualizarUsuario()
     // Restaurar estado do usuário no Vuex
     this.$store.dispatch('restoreUserState')
+    await this.$store.dispatch('permissions/fetchPermissions')
     await this.listarWhatsapps()
     await this.listarConfiguracoes()
     await this.consultarTickets()
@@ -480,6 +363,14 @@ export default {
   },
 
   methods: {
+    filterByPermission (items) {
+      if (!items || !items.length) return []
+      if (!this.$store.getters.permissionsLoaded) return items
+      return items.filter(item => {
+        const perm = item.permission
+        return !perm || this.$store.getters.can(perm)
+      })
+    },
     exibirMenuBeta (itemMenu) {
       if (!itemMenu?.isBeta) return true
       for (const domain of this.domainExperimentalsMenus) {

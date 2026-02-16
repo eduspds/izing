@@ -29,13 +29,14 @@ const HandleMessage = async (
       const { tenantId } = whatsapp;
       const chat = await msg.getChat();
 
-      const remoteNumber = (msg.fromMe ? msg.to : msg.from)?.replace(/@[s]\.whatsapp\.net$/, "").replace(/@[cg]\.us$/, "") ?? "";
+      const remoteNumberRaw = (msg.fromMe ? msg.to : msg.from) ?? "";
+      const remoteNumber = remoteNumberRaw.replace(/@[s]\.whatsapp\.net$/i, "").replace(/@[cg]\.us$/i, "").replace(/@lid$/i, "") ?? "";
       const sessionNumber = (whatsapp as any).number ?? "";
       if (sessionNumber && remoteNumber) {
-        const norm = (n: string) => n.replace(/\D/g, "").replace(/^55/, "") || n;
+        const norm = (n: string) => (n || "").replace(/\D/g, "");
         if (norm(sessionNumber) === norm(remoteNumber)) {
-          logger.debug(`HandleMessage: ignorando mensagem do próprio número conectado (${remoteNumber})`);
-          return;
+          logger.info(`[HandleMessage] Ignorando mensagem do próprio número conectado (evita ticket para si): ${remoteNumber}`);
+          return resolve();
         }
       }
 
@@ -117,6 +118,11 @@ const HandleMessage = async (
 
         const unreadMessages = msg.fromMe ? 0 : chat.unreadCount;
         const contact = await VerifyContact(msgContact, tenantId);
+        if ((contact as any).isBlocked) {
+          logger.info(`[HandleMessage] Contato bloqueado - ignorando mensagem: ${(contact as any).number}`);
+          resolve();
+          return;
+        }
         const ticket = await FindOrCreateTicketService({
           contact,
           whatsappId: wbot.id,
@@ -127,7 +133,11 @@ const HandleMessage = async (
           channel: "whatsapp"
         });
 
-        if (ticket?.isCampaignMessage || ticket?.isFarewellMessage) {
+        if (!ticket) {
+          resolve();
+          return;
+        }
+        if (ticket.isCampaignMessage || ticket.isFarewellMessage) {
           resolve();
           return;
         }

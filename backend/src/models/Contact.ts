@@ -79,6 +79,10 @@ class Contact extends Model<Contact> {
   @Column
   isGroup: boolean;
 
+  @Default(false)
+  @Column
+  isBlocked: boolean;
+
   @CreatedAt
   createdAt: Date;
 

@@ -41,6 +41,8 @@ import AISummary from "../models/AISummary";
 import SystemRelease from "../models/SystemRelease";
 import TicketKanban from "../models/TicketKanban";
 import TicketKanbanUser from "../models/TicketKanbanUser";
+import Permission from "../models/Permission";
+import UserPermission from "../models/UserPermission";
 
 interface CustomSequelize extends Sequelize {
   afterConnect?: any;
@@ -94,6 +96,8 @@ const models = [
   SystemRelease,
   TicketKanban,
   TicketKanbanUser,
+  Permission,
+  UserPermission,
 ];
 
 sequelize.addModels(models);

@@ -49,6 +49,30 @@ docker-compose exec api npx sequelize db:seed:all
 
 ---
 
+## E-mail de convites (convite de usuário)
+
+Para que o destinatário **receba o e-mail** com o link do convite, configure no **`.env` do backend**:
+
+```env
+# E-mail (SMTP) – obrigatório para enviar convites
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USER=seu-email@gmail.com
+MAIL_PASS=sua-senha-de-app
+MAIL_FROM=seu-email@gmail.com
+
+# URL do frontend – usada no link do convite (ex.: https://seusistema.com ou http://localhost:8080)
+FRONT_URL=http://localhost:8080
+```
+
+- **Gmail:** use uma [Senha de app](https://myaccount.google.com/apppasswords) (não use a senha normal da conta). Em “Segurança” ative verificação em 2 etapas e depois crie a senha de app.
+- **Outros provedores:** use host/porta do SMTP deles (ex.: Outlook: `smtp.office365.com`, porta 587).
+- Se **não** configurar `MAIL_USER`, o convite é criado no sistema, mas o e-mail **não é enviado**. O admin pode copiar o link manualmente (o backend registra no log o link quando o e-mail não é enviado).
+
+Depois de alterar o `.env`, reinicie o backend (`npm run dev:server`).
+
+---
+
 ## WhatsApp (Baileys) – se a conexão fechar logo ao iniciar
 
 - **Sintoma:** `[DISCONNECT] Conexão fechada ... statusCode: indefinido` logo após `[INIT] Sessão Baileys iniciada`.

@@ -38,7 +38,7 @@ contactRoutes.post("/contacts", isAuth, ContactController.store);
 contactRoutes.post("/contacts/sync", isAuth, ContactController.syncContacts);
 
 contactRoutes.put("/contacts/:contactId", isAuth, ContactController.update);
-
+contactRoutes.put("/contacts/:contactId/block", isAuth, ContactController.blockContact);
 contactRoutes.delete("/contacts/:contactId", isAuth, ContactController.remove);
 
 // Corrigir a rota adicionando a barra inicial e o prefixo 'number'

@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import User from "../../models/User";
+import Whatsapp from "../../models/Whatsapp";
 import ShowTicketService from "./ShowTicketService";
 import CampaignContacts from "../../models/CampaignContacts";
 import socketEmit from "../../helpers/socketEmit";
@@ -271,6 +272,30 @@ const FindOrCreateTicketService = async ({
         groupContact ? groupContact.id : contact.id
       } | will continue default flow`
     );
+  }
+
+  // Evitar criar/reutilizar ticket quando o contato é o próprio número conectado (Baileys/eco)
+  if (!groupContact && contact.number) {
+    const session = await Whatsapp.findByPk(whatsappId, { attributes: ["number"] });
+    const sessionNumber = (session as any)?.number;
+    if (sessionNumber) {
+      const norm = (n: string) => (n || "").replace(/\D/g, "");
+      if (norm(contact.number) === norm(sessionNumber)) {
+        logger.info(
+          `[FindOrCreateTicketService] Contato é o próprio número conectado - retornando último ticket sem criar novo: ${contact.number}`
+        );
+        const lastSelf = await Ticket.findOne({
+          where: { tenantId, whatsappId, contactId: contact.id },
+          order: [["updatedAt", "DESC"]],
+          include: [
+            { model: Contact, as: "contact" },
+            { model: User, as: "user", attributes: ["id", "name"] },
+            { association: "whatsapp", attributes: ["id", "name"] }
+          ]
+        });
+        return lastSelf ?? null;
+      }
+    }
   }
 
   let ticket = await Ticket.findOne({

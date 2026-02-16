@@ -210,8 +210,9 @@ const user = {
     },
 
     // ✅ AÇÃO ADICIONAL: Para logout (se necessário)
-    async UserLogout ({ commit }) {
+    async UserLogout ({ commit, dispatch }) {
       const tenantId = localStorage.getItem('tenantId')
+      dispatch('permissions/clearPermissions', null, { root: true })
       // ✅ Emitir evento de usuário idle antes de limpar
       if (socket.connected && tenantId) {
         console.log('🔌 Logout - emitindo setUserIdle')

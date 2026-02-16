@@ -29,6 +29,7 @@ import internalGroupRoutes from "./internalGroupRoutes";
 import internalChatConfigRoutes from "./internalChatConfigRoutes";
 import aiSummaryRoutes from "./aiSummaryRoutes";
 import releaseRoutes from "./releaseRoutes";
+import permissionRoutes from "./permissionRoutes";
 
 const routes = Router();
 
@@ -62,5 +63,6 @@ routes.use(internalGroupRoutes);
 routes.use(internalChatConfigRoutes);
 routes.use(aiSummaryRoutes);
 routes.use(releaseRoutes);
+routes.use(permissionRoutes);
 
 export default routes;

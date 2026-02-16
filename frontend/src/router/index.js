@@ -59,6 +59,14 @@ Router.beforeEach((to, from, next) => {
       next()
     }
   } else {
+    if (to.name === 'permissions') {
+      const store = Router.app && Router.app.$store
+      if (store && store.getters.permissionsLoaded && !store.getters.can('permissions-access')) {
+        Notify.create({ message: 'Sem permissão para acessar esta página.', position: 'top', type: 'warning' })
+        next({ name: 'home-dashboard' })
+        return
+      }
+    }
     next()
   }
 })

@@ -4,6 +4,8 @@ import AppError from "../../errors/AppError";
 import User from "../../models/User";
 import UserManagerQueues from "../../models/UserManagerQueues";
 import UsersQueues from "../../models/UsersQueues";
+import Permission from "../../models/Permission";
+import UserPermission from "../../models/UserPermission";
 
 interface Request {
   email: string;
@@ -61,6 +63,16 @@ const CreateUserService = async ({
     profile,
     tenantId
   });
+
+  // Permissões padrão para todos os usuários: dashboard, contatos, atendimento
+  const defaultPermissionNames = ["dashboard-all-view", "contacts-access", "atendimento-access"];
+  const defaultPerms = await Permission.findAll({
+    where: { name: defaultPermissionNames },
+    attributes: ["id"]
+  });
+  await UserPermission.bulkCreate(
+    defaultPerms.map((p) => ({ userId: user.id, permissionId: p.id }))
+  );
 
   // Se for gerente, criar relacionamentos com as filas
   if (profile === "manager" && managerQueues.length > 0) {

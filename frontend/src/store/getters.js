@@ -17,6 +17,8 @@ const getters = {
   isSuporte: state => state.user.isSuporte,
   isAdmin: state => state.user.isAdmin,
   isManager: state => state.user.isManager,
-  modoEspiar: state => state.atendimentoTicket.modoEspiar
+  modoEspiar: state => state.atendimentoTicket.modoEspiar,
+  can: (state, getters) => (permissionName) => getters['permissions/can'](permissionName),
+  permissionsLoaded: state => !!(state.permissions && state.permissions.loaded)
 }
 export default getters

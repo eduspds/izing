@@ -255,7 +255,9 @@ class WhatsAppSessionManager {
               session.connectionState = "open";
               session.readyTimestamp = Date.now();
               const user = (sock as any).user;
-              const number = user?.id?.split(":")[0] ?? "";
+              // Extrair só o número (Baileys pode retornar "557587113971:0" ou "557587113971@s.whatsapp.net" ou "557587113971@lid")
+              const rawId = user?.id ?? "";
+              const number = (rawId.split("@")[0].split(":")[0].replace(/\D/g, "") || rawId).trim();
 
               try {
                 await whatsapp.update({
