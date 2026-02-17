@@ -779,7 +779,7 @@ export default {
 
     async abrirSuporte () {
       this.$q.dialog({
-        title: 'Suporte CognosBot',
+        title: 'Suporte',
         message: 'Como deseja falar com nosso suporte?',
         options: {
           type: 'radio',

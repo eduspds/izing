@@ -29,6 +29,44 @@ async function buildTicketPayloadForSocket(ticket: Ticket): Promise<Record<strin
   return { ...ticketPlain, contact: contactPlain ?? null } as Record<string, unknown>;
 }
 
+/** Dado um contato, retorna a função que acha o primeiro passo "não pulável" a partir de um stepId (corrente de pulos nome/email/data). */
+function findFirstNonSkippableStepId(
+  nodeList: any[],
+  contact: { name?: string; number?: string; email?: string; birthDate?: string } | null
+): (startStepId: string) => string {
+  const existingName = String(contact?.name ?? "").trim();
+  const existingEmail = String(contact?.email ?? "").trim();
+  const existingBirthDate = String(contact?.birthDate ?? "").trim();
+  const nameDigits = existingName.replace(/\D/g, "");
+  const hasRealName = existingName.length >= 2 && !(nameDigits.length >= 10 && /^\d+$/.test(nameDigits));
+  const hasValidEmail = existingEmail.includes("@") && existingEmail.length >= 5;
+
+  const wouldSkip = (s: any) => {
+    if (!s?.waitForData) return false;
+    const tf = s.targetField || "name";
+    const isBirth = tf === "birthDate" || ((tf === "Data de Nascimento" || tf === "Data de nascimento") && (s.validationType || "text") === "date");
+    if (tf === "name" && hasRealName) return true;
+    if (tf === "email" && hasValidEmail) return true;
+    if (isBirth && existingBirthDate.length >= 8) return true;
+    return false;
+  };
+
+  return (startStepId: string) => {
+    let currentId: string | null = startStepId;
+    const visited = new Set<string>();
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const s = nodeList.find((n: any) => n.id === currentId);
+      if (!s) return currentId;
+      if (!wouldSkip(s)) return currentId;
+      const cond = s.conditions?.find((c: any) => c.action === 0 && c.nextStepId);
+      if (!cond?.nextStepId) return currentId;
+      currentId = cond.nextStepId;
+    }
+    return currentId || startStepId;
+  };
+}
+
 const isNextSteps = async (
   ticket: Ticket,
   chatFlow: any,
@@ -37,18 +75,23 @@ const isNextSteps = async (
 ): Promise<boolean> => {
   // action = 0: enviar para proximo step: nextStepId
   if (stepCondition.action === 0) {
+    const nodesList = [...chatFlow.flow.nodeList];
+
+    // Corrente de pulos: se o próximo passo for "aguardar dado" já preenchido, avançar até o primeiro que não seja
+    const contactForSkip = await Contact.findOne({
+      where: { id: ticket.contactId, tenantId: ticket.tenantId },
+      attributes: ["name", "number", "email", "birthDate"]
+    });
+    const getLandStepId = findFirstNonSkippableStepId(nodesList, contactForSkip);
+    const landStepId = getLandStepId(stepCondition.nextStepId);
+
     await ticket.update({
-      stepChatFlow: stepCondition.nextStepId,
+      stepChatFlow: landStepId,
       botRetries: 0,
       lastInteractionBot: new Date()
     });
 
-    const nodesList = [...chatFlow.flow.nodeList];
-
-    /// pegar os dados do proxumo step
-    const nextStep = nodesList.find(
-      (n: any) => n.id === stepCondition.nextStepId
-    );
+    const nextStep = nodesList.find((n: any) => n.id === landStepId);
 
     if (!nextStep) return false;
 
@@ -57,7 +100,7 @@ const isNextSteps = async (
       (condition: any) => condition.type === "US" && condition.action === 3
     );
 
-    // Enviar interações do próximo step
+    // Enviar interações do próximo step (já pode ser o passo "pousado" após pular nome/email/data)
     if (nextStep.interactions && nextStep.interactions.length > 0) {
       await Promise.all(
         nextStep.interactions.map((interaction: any) =>
@@ -475,7 +518,35 @@ const VerifyStepsChatFlowTicket = async (
         const existingEmail = String((contactForStep as any).email ?? "").trim();
         const existingBirthDate = String((contactForStep as any).birthDate ?? "").trim();
 
-        // Etapa "Data de nascimento" (campo fixo): usar uma única vez – se o contato já tem data, pular
+        // Nome "real" = pelo menos 2 caracteres e não é só número de telefone
+        const nameDigits = existingName.replace(/\D/g, "");
+        const hasRealName =
+          existingName.length >= 2 && !(nameDigits.length >= 10 && /^\d+$/.test(nameDigits));
+        const hasValidEmail = existingEmail.includes("@") && existingEmail.length >= 5;
+
+        const getLandStepId = findFirstNonSkippableStepId(nodeList, contactForStep);
+
+        const applySkipAndSend = async (firstNextStepId: string) => {
+          const landStepId = getLandStepId(firstNextStepId);
+          await ticket.update({
+            stepChatFlow: landStepId,
+            botRetries: 0,
+            lastInteractionBot: new Date()
+          });
+          await ticket.reload();
+          const landStep = nodeList.find((n: any) => n.id === landStepId);
+          if (landStep?.interactions?.length) {
+            await Promise.all(
+              landStep.interactions.map((interaction: any) =>
+                BuildSendMessageService({ msg: interaction, tenantId: ticket.tenantId, ticket })
+              )
+            );
+          }
+          const payload = await buildTicketPayloadForSocket(ticket);
+          socketEmit({ tenantId: ticket.tenantId, type: "ticket:update", payload });
+        };
+
+        // Etapa "Data de nascimento": pular se já tem data (e seguir em cadeia)
         const isBirthDateStep =
           targetField === "birthDate" ||
           ((targetField === "Data de Nascimento" || targetField === "Data de nascimento") &&
@@ -483,46 +554,25 @@ const VerifyStepsChatFlowTicket = async (
         if (isBirthDateStep && existingBirthDate.length >= 8) {
           const dataCondition = conditions.find((c: any) => c.action === 0 && c.nextStepId);
           if (dataCondition?.nextStepId) {
-            await ticket.update({
-              stepChatFlow: dataCondition.nextStepId,
-              botRetries: 0,
-              lastInteractionBot: new Date()
-            });
-            await ticket.reload({ include: ["contact"] });
-            const nextStep = nodeList.find((n: any) => n.id === dataCondition.nextStepId);
-            if (nextStep?.interactions?.length) {
-              await Promise.all(
-                nextStep.interactions.map((interaction: any) =>
-                  BuildSendMessageService({ msg: interaction, tenantId: ticket.tenantId, ticket })
-                )
-              );
-            }
-            await ticket.reload();
-            socketEmit({ tenantId: ticket.tenantId, type: "ticket:update", payload: ticket });
+            await applySkipAndSend(dataCondition.nextStepId);
           }
           return;
         }
 
-        // Etapa "Nome": usar uma única vez – se o contato já tem nome definido, pular e ir para o próximo passo
-        if (targetField === "name" && existingName.length >= 2) {
+        // Etapa "Nome": pular se já tem nome real (e seguir em cadeia)
+        if (targetField === "name" && hasRealName) {
           const dataCondition = conditions.find((c: any) => c.action === 0 && c.nextStepId);
           if (dataCondition?.nextStepId) {
-            await ticket.update({
-              stepChatFlow: dataCondition.nextStepId,
-              botRetries: 0,
-              lastInteractionBot: new Date()
-            });
-            await ticket.reload({ include: ["contact"] });
-            const nextStep = nodeList.find((n: any) => n.id === dataCondition.nextStepId);
-            if (nextStep?.interactions?.length) {
-              await Promise.all(
-                nextStep.interactions.map((interaction: any) =>
-                  BuildSendMessageService({ msg: interaction, tenantId: ticket.tenantId, ticket })
-                )
-              );
-            }
-            await ticket.reload();
-            socketEmit({ tenantId: ticket.tenantId, type: "ticket:update", payload: ticket });
+            await applySkipAndSend(dataCondition.nextStepId);
+          }
+          return;
+        }
+
+        // Etapa "E-mail": pular se já tem e-mail válido (e seguir em cadeia)
+        if (targetField === "email" && hasValidEmail) {
+          const dataCondition = conditions.find((c: any) => c.action === 0 && c.nextStepId);
+          if (dataCondition?.nextStepId) {
+            await applySkipAndSend(dataCondition.nextStepId);
           }
           return;
         }
