@@ -35,7 +35,16 @@
 
       <!-- Resumo -->
       <div v-else-if="summary" class="summary-content">
-        <div class="summary-text">{{ summary.text }}</div>
+        <div
+          class="summary-text"
+          :class="{ 'summary-text-clicavel': summary.text && summary.text.length > 200 }"
+          @click="summary.text && summary.text.length > 200 ? $emit('ver-completo', summary.text) : null"
+        >
+          {{ summary.text && summary.text.length > 200 ? summary.text.substring(0, 200) + '...' : summary.text }}
+        </div>
+        <div v-if="summary.text && summary.text.length > 200" class="text-caption q-mt-xs">
+          <a href="javascript:void(0)" class="text-primary" @click.prevent="$emit('ver-completo', summary.text)">Ver completo</a>
+        </div>
         <div class="summary-meta text-caption text-grey-6 q-mt-sm">
           <q-icon name="schedule" size="12px" class="q-mr-xs" />
           Gerado em {{ formatDate(summary.createdAt) }}
@@ -288,6 +297,13 @@ export default {
     color: #424242;
     white-space: pre-wrap;
     word-wrap: break-word;
+  }
+  .summary-text-clicavel {
+    cursor: pointer;
+  }
+  .summary-text-clicavel:hover {
+    text-decoration: underline;
+    color: #1976d2;
   }
 }
 

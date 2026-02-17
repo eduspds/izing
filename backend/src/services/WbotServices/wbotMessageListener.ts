@@ -83,16 +83,38 @@ const wbotMessageListener = (wbot: BaileysSession): void => {
   logger.info(`[WBOT_LISTENER] Registrando listeners para sessão ${wbot.id}`);
   const { sock } = wbot;
 
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return;
-    const whatsapp = await Whatsapp.findByPk(wbot.id, { attributes: ["number"] }).catch(() => null);
-    const sessionNumberNorm = (whatsapp as any)?.number ? String((whatsapp as any).number).replace(/\D/g, "") : "";
-    const norm = (n: string) => (n || "").replace(/\D/g, "");
+  // Fila global: evita que dois messages.upsert (ex.: duas mensagens em eventos separados) processem em paralelo e travem no getContact.
+  let lastUpsertPromise: Promise<void> = Promise.resolve();
 
-    for (const msg of messages) {
+  // Fluxo: Baileys -> messages.upsert -> HandleMessage (sequencial) -> VerifyMessage/VerifyMediaMessage
+  // -> CreateMessageService -> socketEmit(chat:create). Cliente em ${tenantId}:ticketList recebe e faz UPDATE_MESSAGES.
+  sock.ev.on("messages.upsert", ({ messages, type }) => {
+    // "notify" = mensagens novas; "append" = histórico. Aceitar undefined para compatibilidade com algumas versões do Baileys.
+    const isNewMessage = type === "notify" || type === undefined;
+    if (!isNewMessage) {
+      logger.debug(`[LISTENER] messages.upsert ignorado (type=${type}, não é notify). ${messages.length} msg(s).`);
+      return;
+    }
+    if (messages.length === 0) return;
+
+    const runBatch = async () => {
+      const whatsapp = await Whatsapp.findByPk(wbot.id, { attributes: ["number"] }).catch(() => null);
+      const sessionNumberNorm = (whatsapp as any)?.number ? String((whatsapp as any).number).replace(/\D/g, "") : "";
+      const norm = (n: string) => (n || "").replace(/\D/g, "");
+
+      for (const msg of messages) {
       const key = msg.key;
+      if (!key?.remoteJid || !key?.id) {
+        logger.debug(`[LISTENER] Mensagem sem remoteJid ou id, ignorando. key=%o`, key);
+        continue;
+      }
       if (key.fromMe && !key.remoteJid) continue;
       if (key.remoteJid === "status@broadcast") continue;
+      // Algumas versões do Baileys podem enviar upsert sem message (ex.: reações, edições)
+      if (!msg.message || typeof msg.message !== "object") {
+        logger.debug(`[LISTENER] Mensagem sem conteúdo (message vazio), ignorando. id=${key.id}`);
+        continue;
+      }
       // Evitar abrir ticket para o próprio número conectado (chat direto consigo mesmo ou eco)
       if (sessionNumberNorm && key.remoteJid && !key.remoteJid.endsWith("@g.us")) {
         const remoteNum = key.remoteJid.replace(/@.*$/, "");
@@ -110,9 +132,19 @@ const wbotMessageListener = (wbot: BaileysSession): void => {
       );
       if (adapter.isStatus) continue;
       const msgId = adapter.id.id;
-      logger.debug(`[LISTENER] messages.upsert: ${msgId} - fromMe: ${adapter.fromMe}`);
-      HandleMessage(adapter, wbot);
-    }
+      logger.info(`[LISTENER] Nova mensagem WhatsApp recebida: id=${msgId} fromMe=${adapter.fromMe} tipo=${adapter.type} sessão=${wbot.id}`);
+      // Processar em sequência para evitar race condition e atraso no socket emit (chat:create)
+      try {
+        await HandleMessage(adapter, wbot);
+      } catch (err) {
+        logger.error(`[LISTENER] Erro ao processar mensagem id=${msgId}:`, err?.message || err, err?.stack);
+      }
+      }
+    };
+
+    lastUpsertPromise = lastUpsertPromise.then(runBatch).catch(err => {
+      logger.error(`[LISTENER] Erro no lote messages.upsert:`, err?.message || err, err?.stack);
+    });
   });
 
   sock.ev.on("messages.update", async (updates) => {

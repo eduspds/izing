@@ -8,6 +8,7 @@ import fs, { stat } from "fs";
 import ListContactsService from "../services/ContactServices/ListContactsService";
 import CreateContactService from "../services/ContactServices/CreateContactService";
 import ShowContactService from "../services/ContactServices/ShowContactService";
+import ListTicketsByContactService from "../services/TicketServices/ListTicketsByContactService";
 import UpdateContactService from "../services/ContactServices/UpdateContactService";
 import DeleteContactService from "../services/ContactServices/DeleteContactService";
 import UpdateContactTagsService from "../services/ContactServices/UpdateContactTagsService";
@@ -115,6 +116,21 @@ export const show = async (req: Request, res: Response): Promise<Response> => {
   const contact = await ShowContactService({ id: contactId, tenantId });
 
   return res.status(200).json(contact);
+};
+
+/** Lista tickets do mesmo contato (histórico de atendimentos), ordenados por data */
+export const listTicketsByContact = async (req: Request, res: Response): Promise<Response> => {
+  const { contactId } = req.params;
+  const { tenantId } = req.user;
+  const limit = req.query.limit ? Math.min(Number(req.query.limit), 100) : 50;
+
+  const result = await ListTicketsByContactService({
+    contactId,
+    tenantId,
+    limit
+  });
+
+  return res.status(200).json(result);
 };
 
 export const update = async (

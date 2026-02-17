@@ -59,6 +59,15 @@ export function LocalizarMensagens (params) {
   })
 }
 
+/** Lista mídias do ticket (para barra lateral "Mídia, links e docs") */
+export function ListarMidiaTicket (ticketId, limit = 100) {
+  return request({
+    url: `/messages/${ticketId}/media`,
+    method: 'get',
+    params: { limit }
+  })
+}
+
 export function AtivarSigilo (ticketId, password) {
   return request({
     url: `/tickets/${ticketId}/activate-confidential`,
@@ -84,10 +93,12 @@ export function ExibirMensagensSigilosas (ticketId, password) {
 }
 
 export function EnviarMensagemTexto (ticketId, data) {
+  const isFormData = typeof FormData !== 'undefined' && data instanceof FormData
   return request({
     url: `/messages/${ticketId}`,
     method: 'post',
-    data
+    data,
+    timeout: isFormData ? 60000 : 10000
   })
 }
 

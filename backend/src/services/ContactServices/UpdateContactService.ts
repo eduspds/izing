@@ -20,6 +20,8 @@ interface ContactData {
   email?: string;
   number?: string;
   name?: string;
+  /** Data de nascimento (YYYY-MM-DD). Campo fixo para calendário/aniversários. */
+  birthDate?: string | null;
   extraInfo?: ExtraInfo[];
   wallets?: null | number[] | string[];
 }
@@ -35,11 +37,11 @@ const UpdateContactService = async ({
   contactId,
   tenantId
 }: Request): Promise<Contact> => {
-  const { email, name, number, extraInfo, wallets } = contactData;
+  const { email, name, number, birthDate, extraInfo, wallets } = contactData;
 
   const contact = await Contact.findOne({
     where: { id: contactId, tenantId },
-    attributes: ["id", "name", "number", "email", "profilePicUrl"],
+    attributes: ["id", "name", "number", "email", "birthDate", "profilePicUrl"],
     include: [
       "extraInfo",
       "tags",
@@ -93,14 +95,15 @@ const UpdateContactService = async ({
     await ContactWallet.bulkCreate(contactWallets);
   }
 
-  await contact.update({
-    name,
-    number,
-    email
-  });
+  const updatePayload: Record<string, unknown> = {};
+  if (name !== undefined) updatePayload.name = name;
+  if (number !== undefined) updatePayload.number = number;
+  if (email !== undefined) updatePayload.email = email;
+  if (birthDate !== undefined) updatePayload.birthDate = birthDate;
+  await contact.update(updatePayload);
 
   await contact.reload({
-    attributes: ["id", "name", "number", "email", "profilePicUrl"],
+    attributes: ["id", "name", "number", "email", "birthDate", "profilePicUrl"],
     include: [
       "extraInfo",
       "tags",

@@ -34,6 +34,77 @@
           v-model="node.name"
           class="q-my-sm"
           :disable="['start', 'configurations'].includes(node.type) || isWelcomeNode" />
+
+        <!-- Aguardar Entrada de Dados (apenas etapas normais) -->
+        <template v-if="node.type === 'node'">
+          <q-separator inset class="q-my-sm" />
+          <div class="q-my-sm">
+            <q-checkbox
+              :value="node.waitForData"
+              label="Aguardar Entrada de Dados"
+              class="text-weight-medium"
+              :disable="isWelcomeNode"
+              @input="setWaitForData"
+            />
+            <p class="text-caption text-grey-7 q-mt-xs q-mb-none">
+              Quando ativo, o robô trata a próxima mensagem do usuário como valor do campo escolhido (não como opção de menu).
+            </p>
+          </div>
+          <div v-if="node.waitForData"
+            class="q-gutter-sm q-mb-md">
+            <q-select
+              outlined
+              dense
+              :value="campoAlvoSelect"
+              :options="opcoesCampoAlvo"
+              option-label="label"
+              option-value="value"
+              emit-value
+              map-options
+              label="Campo Alvo"
+              class="full-width"
+              options-dense
+              @input="setCampoAlvo"
+            />
+            <q-banner
+              v-if="node.waitForData && (campoAlvoSelect === 'name' || campoAlvoSelect === 'email' || campoAlvoSelect === 'birthDate')"
+              class="bg-info text-white q-mb-sm rounded-borders"
+              dense
+            >
+              <template v-slot:avatar>
+                <q-icon name="mdi-information-outline" />
+              </template>
+              Este dado é coletado <strong>uma única vez</strong>, até o campo ser preenchido no cadastro do cliente. Após preenchido, se o cliente retornar ao contato, essa etapa será <strong>pulada</strong> e o fluxo seguirá para as próximas etapas.
+            </q-banner>
+            <q-input
+              v-if="campoAlvoSelect === '__custom__'"
+              outlined
+              dense
+              :value="node.targetField"
+              @input="setTargetField"
+              label="Nome do campo personalizado"
+              placeholder="Ex: Data de Nascimento, Time do Coração"
+              class="full-width"
+              hint="Será criado/atualizado em Informações adicionais do contato"
+            />
+            <q-select
+              v-if="node.waitForData"
+              outlined
+              dense
+              :value="tipoValidacaoModel"
+              :options="opcoesTipoValidacao"
+              option-label="label"
+              option-value="value"
+              emit-value
+              map-options
+              label="Tipo de Validação"
+              class="full-width"
+              options-dense
+              @input="setTipoValidacao"
+            />
+          </div>
+        </template>
+
         <q-separator inset="" />
       </div>
       <q-card-section class="q-pa-none"
@@ -69,9 +140,9 @@
                       Enviar Mensagem
                     </q-tooltip>
                   </q-btn>
-                  <!-- <q-btn
+                  <q-btn
                     flat
-                    icon="mdi-message-settings-outline"
+                    icon="mdi-format-list-bulleted"
                     class="bg-padrao btn-rounded q-mx-xs"
                     :color="$q.dark.isActive ? 'white' : ''"
                     @click="addMessageOptions"
@@ -79,7 +150,7 @@
                     <q-tooltip content-class="text-bold">
                       Enviar Mensagem (Botões | Listas)
                     </q-tooltip>
-                  </q-btn> -->
+                  </q-btn>
                   <q-btn @click="addMediaField"
                     flat
                     icon="mdi-file-document-outline"
@@ -688,17 +759,18 @@
 </template>
 
 <script>
+import Vue from 'vue'
 import { uid } from 'quasar'
 // import { cloneDeep } from 'lodash'
 import MessageField from './messageField'
-// import MessageOptionsField from './messageOptionsField.vue'
+import MessageOptionsField from './messageOptionsField.vue'
 import MediaField from './mediaField.vue'
 import { VEmojiPicker } from 'v-emoji-picker'
 export default {
   components: {
     MessageField,
     VEmojiPicker,
-    // MessageOptionsField,
+    MessageOptionsField,
     MediaField
   },
   props: {
@@ -753,6 +825,41 @@ export default {
   computed: {
     isWelcomeNode () {
       return this.node && this.node.viewOnly && this.node.name === 'Boas vindas!'
+    },
+    opcoesCampoAlvo () {
+      return [
+        { label: 'Nome', value: 'name' },
+        { label: 'E-mail', value: 'email' },
+        { label: 'Data de Nascimento', value: 'birthDate' },
+        { label: 'Campo personalizado', value: '__custom__' }
+      ]
+    },
+    opcoesTipoValidacao () {
+      const campo = this.campoAlvoSelect
+      const todas = [
+        { label: 'Data (DD/MM ou DD/MM/AAAA)', value: 'date' },
+        { label: 'E-mail', value: 'email' },
+        { label: 'Número', value: 'number' },
+        { label: 'Texto livre', value: 'text' }
+      ]
+      if (campo === 'name') return [{ label: 'Texto livre', value: 'text' }]
+      if (campo === 'email') return [{ label: 'E-mail', value: 'email' }]
+      if (campo === 'birthDate') return [{ label: 'Data (DD/MM ou DD/MM/AAAA)', value: 'date' }]
+      return todas
+    },
+    campoAlvoSelect () {
+      if (!this.node || !this.node.targetField) return 'name'
+      if (this.node.targetField === 'name' || this.node.targetField === 'email') return this.node.targetField
+      if (this.node.targetField === 'birthDate' || this.node.targetField === 'Data de Nascimento' || this.node.targetField === 'Data de nascimento') return 'birthDate'
+      return '__custom__'
+    },
+    tipoValidacaoModel () {
+      const vt = this.node && (this.node.validationType || 'text')
+      const campo = this.campoAlvoSelect
+      if (campo === 'name' && vt !== 'text') return 'text'
+      if (campo === 'email' && vt !== 'email') return 'email'
+      if (campo === 'birthDate' && vt !== 'date') return 'date'
+      return vt
     }
   },
   watch: {
@@ -774,9 +881,45 @@ export default {
         }
       },
       deep: true
+    },
+    'node.targetField' (newVal) {
+      if (!this.node || !this.node.waitForData) return
+      const vt = this.node.validationType || 'text'
+      if (newVal === 'name' && vt !== 'text') Vue.set(this.node, 'validationType', 'text')
+      if (newVal === 'email' && vt !== 'email') Vue.set(this.node, 'validationType', 'email')
+      if (newVal === 'birthDate' && vt !== 'date') Vue.set(this.node, 'validationType', 'date')
     }
   },
   methods: {
+    setWaitForData (val) {
+      if (this.node) Vue.set(this.node, 'waitForData', Boolean(val))
+    },
+    setCampoAlvo (val) {
+      if (!this.node) return
+      if (val === 'name') {
+        Vue.set(this.node, 'targetField', 'name')
+        Vue.set(this.node, 'validationType', 'text')
+      } else if (val === 'email') {
+        Vue.set(this.node, 'targetField', 'email')
+        Vue.set(this.node, 'validationType', 'email')
+      } else if (val === 'birthDate') {
+        Vue.set(this.node, 'targetField', 'birthDate')
+        Vue.set(this.node, 'validationType', 'date')
+      } else {
+        const current = this.node.targetField
+        const isBuiltIn = current === 'name' || current === 'email' || current === 'birthDate'
+        const isCustomLabel = current && current !== 'name' && current !== 'email' && current !== 'birthDate' &&
+          current !== 'Data de Nascimento' && current !== 'Data de nascimento'
+        Vue.set(this.node, 'targetField', isBuiltIn ? 'Outro campo' : (isCustomLabel ? current : 'Outro campo'))
+        if (isBuiltIn) Vue.set(this.node, 'validationType', 'text')
+      }
+    },
+    setTargetField (val) {
+      if (this.node) Vue.set(this.node, 'targetField', val || '')
+    },
+    setTipoValidacao (val) {
+      if (this.node) Vue.set(this.node, 'validationType', val || 'text')
+    },
     gerarUID () {
       return uid()
     },
@@ -787,16 +930,16 @@ export default {
         id: this.gerarUID()
       })
     },
-    // addMessageOptions () {
-    //   this.node.interactions.push({
-    //     type: 'MessageOptionsField',
-    //     data: {
-    //       message: '',
-    //       values: []
-    //     },
-    //     id: this.gerarUID()
-    //   })
-    // },
+    addMessageOptions () {
+      this.node.interactions.push({
+        type: 'MessageOptionsField',
+        data: {
+          message: '',
+          values: []
+        },
+        id: this.gerarUID()
+      })
+    },
     addMediaField () {
       this.node.interactions.push({
         type: 'MediaField',
@@ -843,8 +986,10 @@ export default {
         top: top,
         interactions: [],
         conditions: [],
-        actions: []
-        // ico: 'el-icon-present'
+        actions: [],
+        waitForData: false,
+        targetField: 'name',
+        validationType: 'text'
       }
       const evt = {
         originalEvent: {
@@ -869,7 +1014,10 @@ export default {
         top: (parseInt(this.node.top) + 50) + 'px',
         interactions: JSON.parse(JSON.stringify(this.node.interactions || [])),
         conditions: JSON.parse(JSON.stringify(this.node.conditions || [])),
-        actions: JSON.parse(JSON.stringify(this.node.actions || []))
+        actions: JSON.parse(JSON.stringify(this.node.actions || [])),
+        waitForData: Boolean(this.node.waitForData),
+        targetField: this.node.targetField || 'name',
+        validationType: this.node.validationType || 'text'
       }
 
       // Gerar novos IDs para interações e condições
@@ -1057,6 +1205,17 @@ export default {
         if (node.id === id) {
           // this.node = cloneDeep(node)
           this.node = node
+          if (node.type === 'node') {
+            if (!Object.prototype.hasOwnProperty.call(node, 'waitForData')) Vue.set(node, 'waitForData', false)
+            if (!Object.prototype.hasOwnProperty.call(node, 'targetField')) Vue.set(node, 'targetField', 'name')
+            if (!Object.prototype.hasOwnProperty.call(node, 'validationType')) Vue.set(node, 'validationType', 'text')
+            if (node.waitForData) {
+              if (node.targetField === 'Data de Nascimento' || node.targetField === 'Data de nascimento') Vue.set(node, 'targetField', 'birthDate')
+              if (node.targetField === 'name' && node.validationType !== 'text') Vue.set(node, 'validationType', 'text')
+              if (node.targetField === 'email' && node.validationType !== 'email') Vue.set(node, 'validationType', 'email')
+              if (node.targetField === 'birthDate' && node.validationType !== 'date') Vue.set(node, 'validationType', 'date')
+            }
+          }
         }
       })
     },

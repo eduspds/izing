@@ -66,7 +66,8 @@ const SendMessageSystemProxy = async ({
         message = await SendWhatsAppMessage({
           body: messageData.body,
           ticket,
-          quotedMsg: messageData?.quotedMsg
+          quotedMsg: messageData?.quotedMsg,
+          buttons: messageData?.buttons
         });
         break;
     }

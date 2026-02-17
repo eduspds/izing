@@ -62,6 +62,7 @@
         <q-item-label class="text-bold"
           lines="1">
           {{ !ticket.name ? truncateMessage((ticket.contact && ticket.contact.name), 20) : truncateMessage(ticket.name, 20) }}
+          <q-badge v-if="(ticket.contact && ticket.contact.isBlocked) || ticket.contactIsBlocked" color="negative" label="Bloqueado" class="q-ml-xs" dense />
           <q-icon size="20px"
             :name="`img:${ticket.channel}-logo.png`" />
 

@@ -96,6 +96,12 @@
                 Logs
               </q-tooltip>
             </q-btn>
+            <q-btn @click="abrirModalHistorico" flat icon="mdi-history" color="teal"
+              class="bg-padrao btn-rounded" :disable="modoEspiar">
+              <q-tooltip content-class="bg-teal text-bold">
+                Histórico de atendimentos com este cliente
+              </q-tooltip>
+            </q-btn>
             <q-btn @click="abrirModalOutrasInformacoes" flat icon="mdi-information-outline" color="info"
               class="bg-padrao btn-rounded" :disable="cticket.status == 'closed' || modoEspiar">
               <q-tooltip content-class="bg-info text-bold">
@@ -374,6 +380,63 @@
       </q-card>
     </q-dialog>
 
+    <!-- Modal Histórico de atendimentos (tickets do mesmo contato) -->
+    <q-dialog v-model="exibirModalHistorico" no-backdrop-dismiss full-height position="right" @show="carregarHistoricoTickets" @hide="historicoTickets = []">
+      <q-card style="width: 480px; max-width: 90vw;">
+        <q-card-section class="bg-teal text-white q-pa-md">
+          <div class="row items-center">
+            <div class="text-h6 text-bold">
+              <q-icon name="mdi-history" size="24px" class="q-mr-sm" />
+              Histórico com este cliente
+            </div>
+            <q-space />
+            <q-btn icon="close" color="white" flat round dense v-close-popup />
+          </div>
+          <div class="text-caption q-mt-xs opacity-80">
+            Tickets separados por data; clique para abrir o atendimento
+          </div>
+        </q-card-section>
+        <q-card-section class="q-pa-none">
+          <q-inner-loading :showing="loadingHistorico">
+            <q-spinner-dots size="40px" color="teal" />
+          </q-inner-loading>
+          <q-scroll-area v-if="!loadingHistorico" style="height: calc(100vh - 200px);" class="full-width">
+            <q-list separator>
+              <q-item v-for="t in historicoTickets" :key="t.id" clickable v-ripple
+                :active="ticketFocado && ticketFocado.id === t.id" active-class="bg-teal-1"
+                @click="aoSelecionarTicketHistorico(t)">
+                <q-item-section avatar>
+                  <q-icon :name="t.status === 'closed' ? 'mdi-check-circle' : 'mdi-ticket-confirmation-outline'"
+                    :color="t.status === 'closed' ? 'grey' : 'teal'" size="28px" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-medium">Ticket #{{ t.id }}</q-item-label>
+                  <q-item-label caption>
+                    {{ $formatarData(t.createdAt, 'dd/MM/yyyy') }} – {{ $formatarData(t.updatedAt, 'dd/MM/yyyy HH:mm') }}
+                    <span v-if="t.user" class="q-ml-xs">· {{ t.user.name }}</span>
+                  </q-item-label>
+                  <q-item-label v-if="t.lastMessage" caption class="ellipsis" style="max-width: 280px;">
+                    {{ t.lastMessage }}
+                  </q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-chip dense :color="t.status === 'closed' ? 'grey-5' : 'teal'" text-color="white" size="sm">
+                    {{ t.status === 'closed' ? 'Encerrado' : t.status === 'open' ? 'Aberto' : 'Fila' }}
+                  </q-chip>
+                </q-item-section>
+              </q-item>
+              <q-item v-if="!loadingHistorico && (!historicoTickets || historicoTickets.length === 0)" class="text-center q-pa-xl">
+                <q-item-section>
+                  <q-icon name="mdi-history" size="48px" color="grey-5" />
+                  <q-item-label class="text-grey-6 q-mt-sm">Nenhum outro atendimento com este cliente</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-scroll-area>
+        </q-card-section>
+      </q-card>
+    </q-dialog>
+
     <!-- Modal de Etiquetas -->
     <q-dialog v-model="tagModalVisible" persistent>
       <q-card class="q-pa-none" style="width: 600px; max-width: 90vw;">
@@ -576,7 +639,7 @@ import { ListarUsuarios } from 'src/service/user'
 import { ListarFilas } from 'src/service/filas'
 import { AtualizarTicket, ConsultarLogsTicket, AtivarSigilo, DesativarSigilo, ExibirMensagensSigilosas } from 'src/service/tickets'
 import { ListarEtiquetas } from 'src/service/etiquetas'
-import { EditarEtiquetasContato } from 'src/service/contatos'
+import { EditarEtiquetasContato, ListarTicketsPorContato } from 'src/service/contatos'
 import { messagesLog } from '../../utils/constants'
 import ContatoModal from 'src/pages/contatos/ContatoModal'
 export default {
@@ -604,7 +667,10 @@ export default {
       modalSigilo: false,
       senhaSigilo: '',
       isPwdSigilo: true,
-      loadingSigilo: false
+      loadingSigilo: false,
+      exibirModalHistorico: false,
+      historicoTickets: [],
+      loadingHistorico: false
     }
   },
   validations: {
@@ -650,6 +716,28 @@ export default {
       const { data } = await ConsultarLogsTicket({ ticketId: this.ticketFocado.id })
       this.logsTicket = data
       this.exibirModalLogs = true
+    },
+    abrirModalHistorico () {
+      this.exibirModalHistorico = true
+    },
+    async carregarHistoricoTickets () {
+      const contactId = this.ticketFocado && this.ticketFocado.contact && this.ticketFocado.contact.id
+      if (!contactId) return
+      this.loadingHistorico = true
+      this.historicoTickets = []
+      try {
+        const { data } = await ListarTicketsPorContato(contactId, 50)
+        this.historicoTickets = (data && data.tickets) || []
+      } catch (err) {
+        console.error('Erro ao carregar histórico de tickets:', err)
+        this.$notificarErro('Não foi possível carregar o histórico.', err)
+      } finally {
+        this.loadingHistorico = false
+      }
+    },
+    aoSelecionarTicketHistorico (ticket) {
+      this.exibirModalHistorico = false
+      this.$store.dispatch('AbrirChatMensagens', { id: ticket.id, status: ticket.status })
     },
     Value (obj, prop) {
       try {

@@ -174,6 +174,13 @@ const CreateMessageSystemService = async ({
         name: ticket.contact.name
       });
     }
+    // Não enviar mensagem de texto vazia (evita "mensagem vazia" ao reabrir ticket / fluxo com step sem texto)
+    if (!medias || medias.length === 0) {
+      const bodyStr = messageData.body != null ? String(messageData.body).trim() : "";
+      if (bodyStr === "") {
+        return;
+      }
+    }
     if (sendType === "API" && msg.mediaUrl) {
       medias = [];
       const mediaData = await downloadMedia(msg);
@@ -185,100 +192,97 @@ const CreateMessageSystemService = async ({
       medias.push(msg.media);
     }
 
-    if (medias) {
-      await Promise.all(
-        medias.map(async (media: Express.Multer.File | any) => {
-          // O multer já define o filename, usar esse!
-          // Não recriar para evitar inconsistência de nome/timestamp
-          if (!media.filename) {
-            const ext = media.mimetype.split("/")[1].split(";")[0];
-            media.filename = `${new Date().getTime()}.${ext}`;
-          }
+    if (medias && medias.length > 0) {
+      // Processar mídias em sequência para evitar conflito em ticket.update/reload e garantir resposta estável
+      for (const media of medias) {
+        const mediaFile = media as Express.Multer.File | any;
+        if (!mediaFile.filename) {
+          const ext = mediaFile.mimetype?.split("/")[1]?.split(";")[0] || "bin";
+          mediaFile.filename = `${new Date().getTime()}.${ext}`;
+        }
 
-          messageData.mediaType = media.mimetype.split("/")[0];
-          messageData.mediaName = media.filename;
-          messageData.originalName = media.originalname;
+        messageData.mediaType = mediaFile.mimetype?.split("/")[0] || "document";
+        messageData.mediaName = mediaFile.filename;
+        messageData.originalName = mediaFile.originalname;
 
-          let message: any = {};
+        let message: any = {};
 
-          if (!messageData.scheduleDate) {
-            /// enviar mensagem > run time
-            message = await SendMessageSystemProxy({
-              ticket,
-              messageData,
-              media,
-              userId
-            });
-            ///
-          }
-
-          // Verificar se ticket tem sigilo ativo
-          const isConfidential = ticket.isConfidential || false;
-          const confidentialUserId = ticket.confidentialUserId || null;
-
-          const sentId = message.key?.id || message.id?.id || message.id || message.messageId || null;
-          const msgCreated = await Message.create({
-            ...messageData,
-            id: typeof messageData.id === "string" ? messageData.id : undefined,
-            userId,
-            messageId: sentId,
-            body: media.originalname,
-            mediaUrl: media.filename,
-            mediaType:
-              media.mediaType ||
-              media.mimetype.substr(0, media.mimetype.indexOf("/")),
-            isConfidential,
-            confidentialUserId,
-            ack: sentId ? 1 : 0,
-            status: sentId ? "sended" : messageData.status || "pending"
+        if (!messageData.scheduleDate) {
+          message = await SendMessageSystemProxy({
+            ticket,
+            messageData,
+            media: mediaFile,
+            userId
           });
+        }
 
-          const messageCreated = await Message.findByPk(msgCreated.id, {
-            include: [
-              {
-                model: Ticket,
-                as: "ticket",
-                where: { tenantId },
-                include: ["contact"]
-              },
-              {
-                model: Message,
-                as: "quotedMsg",
-                include: ["contact"]
-              }
-            ]
+        const isConfidential = ticket.isConfidential || false;
+        const confidentialUserId = ticket.confidentialUserId || null;
+        const sentId = message?.key?.id || message?.id?.id || message?.id || message?.messageId || null;
+
+        const msgCreated = await Message.create({
+          ...messageData,
+          id: typeof messageData.id === "string" ? messageData.id : undefined,
+          userId,
+          messageId: sentId,
+          body: mediaFile.originalname,
+          mediaUrl: mediaFile.filename,
+          mediaType:
+            mediaFile.mediaType ||
+            (mediaFile.mimetype ? mediaFile.mimetype.substr(0, mediaFile.mimetype.indexOf("/")) : "document"),
+          isConfidential,
+          confidentialUserId,
+          ack: sentId ? 1 : 0,
+          status: sentId ? "sended" : messageData.status || "pending"
+        });
+
+        const messageCreated = await Message.findByPk(msgCreated.id, {
+          include: [
+            {
+              model: Ticket,
+              as: "ticket",
+              where: { tenantId },
+              include: ["contact"]
+            },
+            {
+              model: Message,
+              as: "quotedMsg",
+              include: ["contact"]
+            }
+          ]
+        });
+
+        if (!messageCreated) {
+          throw new Error("ERR_CREATING_MESSAGE_SYSTEM");
+        }
+
+        await ticket.update({
+          lastMessage: messageCreated.body,
+          lastMessageAt: new Date().getTime(),
+          updatedAt: new Date()
+        });
+        await ticket.reload();
+
+        const serializedMessage = messageCreated.toJSON() as any;
+        if (!serializedMessage.ticket && messageCreated.ticketId) {
+          const ticketForPayload = await Ticket.findOne({
+            where: { id: messageCreated.ticketId, tenantId },
+            include: ["contact"]
           });
+          if (ticketForPayload) serializedMessage.ticket = ticketForPayload.toJSON();
+        }
 
-          if (!messageCreated) {
-            throw new Error("ERR_CREATING_MESSAGE_SYSTEM");
-          }
-
-          await ticket.update({
-            lastMessage: messageCreated.body,
-            lastMessageAt: new Date().getTime(),
-            updatedAt: new Date() // Atualizar updatedAt para que o ticket suba para o topo
-          });
-
-          // Recarregar o ticket para obter os dados atualizados
-          await ticket.reload();
-
-          // Forçar serialização para chamar os getters (mediaUrl)
-          const serializedMessage = messageCreated.toJSON();
-
-          socketEmit({
-            tenantId,
-            type: "chat:create",
-            payload: serializedMessage
-          });
-
-          // Emitir evento de atualização do ticket para que ele suba para o topo
-          socketEmit({
-            tenantId,
-            type: "ticket:update",
-            payload: ticket
-          });
-        })
-      );
+        socketEmit({
+          tenantId,
+          type: "chat:create",
+          payload: serializedMessage
+        });
+        socketEmit({
+          tenantId,
+          type: "ticket:update",
+          payload: ticket
+        });
+      }
     } else {
       let message: any = {};
 

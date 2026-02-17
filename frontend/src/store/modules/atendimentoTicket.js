@@ -45,17 +45,22 @@ const filterConfidentialMessages = (messages, ticketFocado = null) => {
   return messages.filter(msg => canViewConfidentialMessage(msg, ticketFocado))
 }
 
+// Retorna tempo em ms para ordenação; normaliza timestamp (s/ms, number/string) e createdAt
+const getMessageTimeMs = (obj) => {
+  if (obj.timestamp != null) {
+    const raw = Number(obj.timestamp)
+    if (!Number.isFinite(raw)) return 0
+    return raw < 1e12 ? raw * 1000 : raw
+  }
+  if (obj.createdAt != null) {
+    const d = typeof obj.createdAt === 'string' ? parseISO(obj.createdAt) : new Date(obj.createdAt)
+    return d.getTime()
+  }
+  return 0
+}
+
 const orderMessages = (messages) => {
-  const newMessages = orderBy(messages, (obj) => {
-    // timestamp é um número (unix timestamp em segundos ou milissegundos)
-    // createdAt é uma string ISO
-    if (obj.timestamp) {
-      // Se timestamp for menor que 10000000000, está em segundos, converter para ms
-      const timestamp = obj.timestamp < 10000000000 ? obj.timestamp * 1000 : obj.timestamp
-      return new Date(timestamp)
-    }
-    return parseISO(obj.createdAt)
-  }, ['asc'])
+  const newMessages = orderBy(messages, (obj) => getMessageTimeMs(obj), ['asc'])
   return [...newMessages]
 }
 
@@ -404,14 +409,19 @@ const atendimentoTicket = {
         }
       }
     },
-    // OK
+    // OK - merge com mensagens já em tela para não perder as que chegaram via socket e ainda não vieram na API
     LOAD_INITIAL_MESSAGES (state, payload) {
       const { messages, messagesOffLine } = payload
-      state.mensagens = []
-      // Filtrar mensagens sigilosas
-      const filteredMessages = filterConfidentialMessages([...messages, ...messagesOffLine], state.ticketFocado)
-      const newMessages = orderMessages(filteredMessages)
-      state.mensagens = newMessages
+      const fromApi = filterConfidentialMessages([...messages, ...messagesOffLine], state.ticketFocado)
+      const apiIds = new Set(fromApi.map(m => m.id).filter(Boolean))
+      const twoMinutesAgo = Date.now() - 2 * 60 * 1000
+      const onlyInState = (state.mensagens || []).filter(m => {
+        if (!m.id) return false
+        if (apiIds.has(m.id)) return false
+        return getMessageTimeMs(m) >= twoMinutesAgo
+      })
+      const merged = [...fromApi, ...onlyInState]
+      state.mensagens = orderMessages(merged)
     },
     // OK
     LOAD_MORE_MESSAGES (state, payload) {
@@ -429,71 +439,79 @@ const atendimentoTicket = {
           newMessages.push(message)
         }
       })
-      const messagesOrdered = orderMessages(newMessages)
-      state.mensagens = [...messagesOrdered, ...state.mensagens]
+      const merged = [...newMessages, ...state.mensagens]
+      state.mensagens = orderMessages(merged)
     },
     // OK
     UPDATE_MESSAGES (state, payload) {
-      // Se ticket não for o focado, não atualizar.
-      if (state.ticketFocado.id === payload.ticket.id) {
+      // Garantir ticket com id (backend pode enviar ticket no payload ou ticketId na mensagem)
+      const ticket = payload.ticket || (payload.ticketId != null && { id: payload.ticketId })
+      if (!ticket || (ticket.id == null && payload.ticketId == null)) return
+      const ticketId = Number(ticket.id || payload.ticketId)
+      if (!ticketId) return
+      const payloadNormalized = { ...payload, ticket: { ...ticket, id: ticketId } }
+      // Comparação explícita em número para evitar falha quando backend envia id como string (ex.: Sequelize/JSON)
+      const ticketFocadoId = state.ticketFocado && state.ticketFocado.id != null ? Number(state.ticketFocado.id) : null
+      const isTicketFocado = ticketFocadoId !== null && ticketFocadoId === ticketId
+      if (isTicketFocado) {
         // Verificar se mensagem sigilosa pode ser exibida
-        const canView = canViewConfidentialMessage(payload, state.ticketFocado)
+        const canView = canViewConfidentialMessage(payloadNormalized, state.ticketFocado)
 
         // Se mensagem é sigilosa e não pode ser exibida, remover ou não adicionar
-        if (payload.isConfidential && !canView) {
+        if (payloadNormalized.isConfidential && !canView) {
           // Remover mensagem sigilosa se usuário não tem permissão
           const mensagens = state.mensagens.filter(m =>
-            m.id !== payload.id && (payload.idFront ? m.idFront !== payload.idFront : true)
+            m.id !== payloadNormalized.id && (payloadNormalized.idFront ? m.idFront !== payloadNormalized.idFront : true)
           )
           state.mensagens = mensagens
           return
         }
 
-        // Se pode exibir (não é sigilosa OU é sigilosa e tem permissão), adicionar/atualizar
-        // Tentar encontrar por ID ou por idFront (para mensagens enviadas localmente)
-        const messageIndex = state.mensagens.findIndex(m =>
-          m.id === payload.id || (payload.idFront && m.idFront === payload.idFront)
-        )
+        // Priorizar id (UUID do backend): cada mensagem do servidor tem id único.
+        // Só usar idFront para atualizar mensagem otimista (enviada pelo usuário ainda sem id),
+        // senão várias mídias com o mesmo idFront sobrescreviam uma à outra no chat.
+        let messageIndex = state.mensagens.findIndex(m => m.id === payloadNormalized.id)
+        if (messageIndex === -1 && payloadNormalized.idFront) {
+          messageIndex = state.mensagens.findIndex(m =>
+            m.idFront === payloadNormalized.idFront && !m.id
+          )
+        }
         const mensagens = [...state.mensagens]
         if (messageIndex !== -1) {
-          // Atualizar mensagem existente (evita duplicação)
-          mensagens[messageIndex] = payload
+          mensagens[messageIndex] = payloadNormalized
         } else {
-          // Adicionar nova mensagem apenas se não existir
-          mensagens.push(payload)
+          mensagens.push(payloadNormalized)
         }
         // Filtrar mensagens sigilosas após adicionar/atualizar
-        // Isso garante que mensagens sigilosas sejam removidas se o sigilo foi desativado
         const filteredMessages = filterConfidentialMessages(mensagens, state.ticketFocado)
-        // Ordenar mensagens após filtrar
+        // Ordenar e atribuir novo array para garantir reatividade no Vue
         state.mensagens = orderMessages(filteredMessages)
-        if (payload.scheduleDate && payload.status == 'pending') {
-          const idxScheduledMessages = state.ticketFocado.scheduledMessages.findIndex(m => m.id === payload.id)
+        if (payloadNormalized.scheduleDate && payloadNormalized.status == 'pending' && state.ticketFocado.scheduledMessages) {
+          const idxScheduledMessages = state.ticketFocado.scheduledMessages.findIndex(m => m.id === payloadNormalized.id)
           if (idxScheduledMessages === -1) {
-            state.ticketFocado.scheduledMessages.push(payload)
+            state.ticketFocado.scheduledMessages.push(payloadNormalized)
           }
         }
       }
 
-      const TicketIndexUpdate = state.tickets.findIndex(t => t.id == payload.ticket.id)
+      const TicketIndexUpdate = state.tickets.findIndex(t => t.id == ticketId)
       if (TicketIndexUpdate !== -1) {
         const tickets = [...state.tickets]
-        const unreadMessages = state.ticketFocado.id == payload.ticket.id ? 0 : payload.ticket.unreadMessages
+        const isFocado = state.ticketFocado && (state.ticketFocado.id == ticketId)
+        const unreadMessages = isFocado ? 0 : (payloadNormalized.ticket && payloadNormalized.ticket.unreadMessages) || 0
         tickets[TicketIndexUpdate] = {
           ...state.tickets[TicketIndexUpdate],
-          answered: payload.ticket.answered,
+          answered: payloadNormalized.ticket && payloadNormalized.ticket.answered,
           unreadMessages,
-          lastMessage: payload.mediaName || payload.body
+          lastMessage: payloadNormalized.mediaName || payloadNormalized.body
         }
         state.tickets = tickets
       }
     },
     // OK
     UPDATE_MESSAGE_STATUS (state, payload) {
-      // Se ticket não for o focado, não atualizar.
-      if (state.ticketFocado.id != payload.ticket.id) {
-        return
-      }
+      if (!state.ticketFocado || !payload.ticket) return
+      if (state.ticketFocado.id != payload.ticket.id) return
       const messageIndex = state.mensagens.findIndex(m => m.id === payload.id)
       const mensagens = [...state.mensagens]
       if (messageIndex !== -1) {
@@ -511,10 +529,8 @@ const atendimentoTicket = {
     },
     // Atualizar mensagem editada
     UPDATE_MESSAGE_EDIT (state, payload) {
-      // Se ticket não for o focado, não atualizar.
-      if (state.ticketFocado.id != payload.ticket.id) {
-        return
-      }
+      if (!state.ticketFocado || !payload.ticket) return
+      if (state.ticketFocado.id != payload.ticket.id) return
 
       // Tentar encontrar por ID ou por idFront
       const messageIndex = state.mensagens.findIndex(m =>

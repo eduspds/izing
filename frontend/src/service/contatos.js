@@ -93,3 +93,12 @@ export function BloquearContato (contactId, blocked) {
     data: { blocked }
   })
 }
+
+/** Lista tickets do mesmo contato (histórico de atendimentos), ordenados por data */
+export function ListarTicketsPorContato (contactId, limit = 50) {
+  return request({
+    url: `/contacts/${contactId}/tickets`,
+    method: 'get',
+    params: { limit }
+  })
+}

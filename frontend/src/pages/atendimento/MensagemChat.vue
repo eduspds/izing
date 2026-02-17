@@ -99,8 +99,8 @@
               ripple
               round
               icon="mdi-chevron-down"
-              @mouseenter="onButtonHover"
-              @mouseleave="onButtonLeave">
+              @mouseenter="onButtonHover($event)"
+              @mouseleave="onButtonLeave($event)">
               <q-menu square
                 auto-close
                 anchor="bottom right"
@@ -189,14 +189,15 @@
               </q-btn>
             </template>
             <template v-if=" mensagem.mediaType === 'image' ">
-              <!-- @click="buscarImageCors(mensagem.mediaUrl)" -->
               <q-img @click=" urlMedia = getMediaUrl(mensagem); abrirModalImagem = true "
                 :src=" getMediaUrl(mensagem) "
                 spinner-color="primary"
                 height="150px"
                 width="330px"
                 class="q-mt-md"
-                style="cursor: pointer;" />
+                style="cursor: pointer; max-height: 200px; object-fit: contain;"
+                @load="$root.$emit('scrollToBottomMessageChat')"
+              />
               <VueEasyLightbox moveDisabled
                 :visible=" abrirModalImagem "
                 :imgs=" urlMedia "
@@ -209,13 +210,16 @@
                 class="q-mt-md"
                 style="object-fit: cover;
                   width: 330px;
+                  max-height: 200px;
                   height: 150px;
                   border-top-left-radius: 8px;
                   border-top-right-radius: 8px;
                   border-bottom-left-radius: 8px;
                   border-bottom-right-radius: 8px;
-                " >
-                </video>
+                "
+                @loadeddata="$root.$emit('scrollToBottomMessageChat')"
+              >
+              </video>
             </template>
             <template v-if=" !['audio', 'vcard', 'image', 'video'].includes(mensagem.mediaType) && mensagem.mediaUrl ">
               <div class="text-center full-width hide-scrollbar no-scroll">
@@ -375,10 +379,11 @@ export default {
     MensagemRespondida
   },
   methods: {
-    onButtonHover () {
-      // Manter o botão visível durante o hover
+    onButtonHover (evt) {
+      if (!evt || !evt.target) return
+      const target = evt.target
       this.$nextTick(() => {
-        const button = event.target.closest('.mostar-btn-opcoes-chat')
+        const button = target.closest('.mostar-btn-opcoes-chat')
         if (button) {
           button.style.opacity = '1'
           button.style.visibility = 'visible'
@@ -386,10 +391,11 @@ export default {
         }
       })
     },
-    onButtonLeave () {
-      // Pequeno delay para permitir transição para o menu
+    onButtonLeave (evt) {
+      if (!evt || !evt.target) return
+      const target = evt.target
       setTimeout(() => {
-        const button = event.target.closest('.mostar-btn-opcoes-chat')
+        const button = target.closest('.mostar-btn-opcoes-chat')
         if (button && !button.matches(':hover')) {
           button.style.opacity = '0'
           button.style.visibility = 'hidden'

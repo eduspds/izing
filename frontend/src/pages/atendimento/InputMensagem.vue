@@ -10,18 +10,15 @@
         square
         no-focus
         no-parent-event
-        class="no-box-shadow no-shadow"
+        class="no-box-shadow no-shadow quick-message-menu"
         fit
         :offset="[0, 5]"
         persistent
-        max-height="400px"
         @hide="visualizarMensagensRapidas = false"
         :value="textChat.startsWith('/') || visualizarMensagensRapidas"
       >
-        <!-- :value="textChat.startsWith('/')" -->
         <q-list
-          class="no-shadow no-box-shadow"
-          style="min-width: 100px"
+          class="no-shadow no-box-shadow quick-message-list"
           separator
           v-if="!cMensagensRapidas.length"
         >
@@ -39,8 +36,7 @@
         </q-list>
 
         <q-list
-          class="no-shadow no-box-shadow"
-          style="min-width: 100px"
+          class="no-shadow no-box-shadow quick-message-list"
           separator
           v-else
         >
@@ -53,12 +49,11 @@
           >
             <q-item-section>
               <q-item-label class="text-bold"> {{ resposta.key }} </q-item-label>
-              <q-item-label
-                caption
-                lines="2"
-              > {{ resposta.message }} </q-item-label>
+              <q-item-label caption class="quick-message-preview">
+                {{ resposta.message }}
+              </q-item-label>
             </q-item-section>
-            <q-tooltip content-class="bg-padrao text-grey-9 text-bold">
+            <q-tooltip content-class="bg-padrao text-grey-9 text-bold quick-message-tooltip" :max-width="320">
               {{ resposta.message }}
             </q-tooltip>
           </q-item>
@@ -70,6 +65,16 @@
       style="min-height: 80px"
       class="row q-pb-md q-pt-sm bg-white justify-start items-center text-grey-9 relative-position"
     >
+      <q-banner
+        v-if="contactBlocked"
+        class="col-12 bg-negative text-white rounded-borders q-mb-sm"
+        dense
+      >
+        <template v-slot:avatar>
+          <q-icon name="mdi-block-helper" size="28px" />
+        </template>
+        <span class="text-weight-medium">Contato bloqueado.</span> Não é possível enviar mensagens. Desbloqueie o contato na lista de contatos para habilitar o envio.
+      </q-banner>
 
       <div
         class="row col-12 q-pa-sm"
@@ -168,6 +173,7 @@
           id="inputEnvioMensagem"
           type="textarea"
           @keydown.exact.enter.prevent="() => textChat.trim().length ? enviarMensagem() : ''"
+          @keydown.tab="onQuickMessageTab"
           v-show="!cMostrarEnvioArquivo"
           class="col-grow q-mx-xs text-grey-10 inputEnvioMensagem"
           bg-color="grey-2"
@@ -273,7 +279,7 @@
           v-if="textChat || cMostrarEnvioArquivo"
           ref="btnEnviarMensagem"
           @click="enviarMensagem"
-          :disabled="ticketFocado.status !== 'open' && !isScheduleDate"
+          :disabled="(ticketFocado.status !== 'open' && !isScheduleDate) || contactBlocked"
           flat
           icon="mdi-send"
           class="bg-padrao btn-rounded q-mx-xs"
@@ -461,11 +467,15 @@ export default {
     cMostrarEnvioArquivo () {
       return this.arquivos.length > 0
     },
+    contactBlocked () {
+      return this.ticketFocado?.contact?.isBlocked === true || this.ticketFocado?.contactIsBlocked === true
+    },
     cDisableActions () {
       return (
         this.isRecordingAudio ||
         (this.ticketFocado.status !== 'open' && !this.isScheduleDate) ||
-        this.modoEspiar
+        this.modoEspiar ||
+        this.contactBlocked
       )
     },
     cMensagensRapidas () {
@@ -474,17 +484,13 @@ export default {
         search = search.replace('/', '')
       }
 
-      console.log('🔍 Buscando mensagens rápidas:', { search, totalMensagens: this.mensagensRapidas.length })
-
       // Se não há busca ou busca está vazia, retorna todas as mensagens
       if (!search || search.trim() === '') {
-        console.log('📝 Retornando todas as mensagens (sem busca)')
         return this.mensagensRapidas
       }
 
       // Filtra as mensagens baseado na busca
       const filtered = this.mensagensRapidas.filter(r => r.key.toLowerCase().indexOf(search) !== -1)
-      console.log('🔍 Resultado da busca:', { filtradas: filtered.length, total: this.mensagensRapidas.length })
 
       // Se não encontrou nenhuma correspondência, retorna todas as mensagens para evitar "não há nada aqui"
       return filtered.length > 0 ? filtered : this.mensagensRapidas
@@ -519,11 +525,21 @@ export default {
         this.$refs.inputEnvioMensagem.focus()
       }
     },
+    onQuickMessageTab (e) {
+      if (!this.textChat.trim().startsWith('/') || !this.cMensagensRapidas.length) return
+      e.preventDefault()
+      e.stopPropagation()
+      const search = this.textChat.replace('/', '').trim().toLowerCase()
+      const exact = this.cMensagensRapidas.find(m => m.key.toLowerCase() === search)
+      const msg = exact || this.cMensagensRapidas[0]
+      if (msg) this.mensagemRapidaSelecionada(msg.message)
+    },
     mensagemRapidaSelecionada (mensagem) {
       this.textChat = mensagem
-      setTimeout(() => {
-        this.$refs.inputEnvioMensagem.focus()
-      }, 300)
+      this.visualizarMensagensRapidas = false
+      this.$nextTick(() => {
+        this.$refs.inputEnvioMensagem && this.$refs.inputEnvioMensagem.focus()
+      })
     },
     onInsertSelectEmoji (emoji) {
       const self = this
@@ -613,13 +629,16 @@ export default {
       }
       const formData = new FormData()
       formData.append('fromMe', true)
+      formData.append('idFront', uid())
+      const firstBody = this.arquivos.length === 1
+        ? this.arquivos[0].name
+        : `${this.arquivos.length} arquivos`
+      formData.append('body', firstBody)
+      if (this.isScheduleDate) {
+        formData.append('scheduleDate', this.scheduleDate)
+      }
       this.arquivos.forEach(media => {
         formData.append('medias', media)
-        formData.append('body', media.name)
-        formData.append('idFront', uid())
-        if (this.isScheduleDate) {
-          formData.append('scheduleDate', this.scheduleDate)
-        }
       })
       return formData
     },
@@ -673,7 +692,10 @@ export default {
         ? this.prepararMensagemTexto()
         : this.prepararUploadMedia()
       try {
-        if (!this.cMostrarEnvioArquivo && !this.textChat) return
+        if (!this.cMostrarEnvioArquivo && !this.textChat) {
+          this.loading = false
+          return
+        }
         await EnviarMensagemTexto(ticketId, message)
         this.arquivos = []
         this.textChat = ''
@@ -728,6 +750,7 @@ export default {
       this.loading = false
     },
     handlerInputMensagem (v) {
+      if (!v || !v.target) return
       this.textChat = v.target.value
     },
     showModalPreviewImagem () {
@@ -786,4 +809,33 @@ export default {
   .inputEnvioMensagem,
   .PickerFileMessage
     width: 200px !important
+</style>
+
+<style lang="sass">
+.quick-message-menu
+  max-width: min(90vw, 420px)
+  max-height: 400px
+  overflow: hidden
+  display: flex
+  flex-direction: column
+
+.quick-message-list
+  max-height: 360px
+  overflow-y: auto
+  overflow-x: hidden
+  min-width: 120px
+
+.quick-message-preview
+  word-break: break-word
+  overflow: hidden
+  display: -webkit-box
+  -webkit-line-clamp: 2
+  -webkit-box-orient: vertical
+  white-space: normal
+  max-width: 100%
+
+.quick-message-tooltip
+  max-width: 320px
+  word-break: break-word
+  white-space: normal
 </style>

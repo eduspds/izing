@@ -11,7 +11,7 @@
     "pretest": "NODE_ENV=test sequelize db:migrate && NODE_ENV=test sequelize db:seed:all",
     "test": "NODE_ENV=test jest",
     "posttest": "NODE_ENV=test sequelize db:migrate:undo:all",
-    "db:migrate": "rm -Rf dist && npm run build && npx sequelize db:migrate",
+    "db:migrate": "node -e \"try{require('fs').rmSync('dist',{recursive:true,force:true})}catch(e){}\" && npm run build && npx sequelize db:migrate",
     "db:seed": "npx sequelize db:seed:all",
     "db:seed:permissions": "npx sequelize db:seed --seed 20260216100000-seed-permissions.js"
   },

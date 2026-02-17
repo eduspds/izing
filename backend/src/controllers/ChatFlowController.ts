@@ -62,6 +62,29 @@ interface ChatFlowData {
   tenantId: number | string;
 }
 
+const MAX_BUTTONS_PER_MESSAGE = 3;
+
+/** Valida que mensagens do tipo MessageOptionsField tenham no máximo 3 opções (botões). */
+function validateChatFlowButtons(flow: Flow): void {
+  if (!flow?.nodeList || !Array.isArray(flow.nodeList)) return;
+  for (const node of flow.nodeList) {
+    const interactions = node.interactions;
+    if (!Array.isArray(interactions)) continue;
+    for (const item of interactions) {
+      const it = item as { type?: string; data?: { values?: unknown[] } };
+      if (it.type === "MessageOptionsField" && it.data?.values) {
+        const len = Array.isArray(it.data.values) ? it.data.values.length : 0;
+        if (len > MAX_BUTTONS_PER_MESSAGE) {
+          throw new AppError(
+            `ChatFlow: mensagem com botões permite no máximo ${MAX_BUTTONS_PER_MESSAGE} opções. Etapa "${node.name}" tem ${len}.`,
+            400
+          );
+        }
+      }
+    }
+  }
+}
+
 export const store = async (req: Request, res: Response): Promise<Response> => {
   const { tenantId } = req.user;
   if (req.user.profile !== "admin") {
@@ -85,18 +108,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 
   console.log("📤 Enviando newFlow:", JSON.stringify(newFlow, null, 2));
 
-  // const schema = Yup.object().shape({
-  //   name: Yup.string().required(),
-  //   action: Yup.number().required(),
-  //   tenantId: Yup.number().required(),
-  //   userId: Yup.number().required()
-  // });
-
-  // try {
-  //   await schema.validate(newAutoReply);
-  // } catch (error) {
-  //   throw new AppError(error.message);
-  // }
+  validateChatFlowButtons(newFlow.flow);
 
   const chatFlow = await CreateChatFlowService(newFlow);
 
@@ -126,17 +138,7 @@ export const update = async (
     tenantId
   };
 
-  // const schema = Yup.object().shape({
-  //   name: Yup.string().required(),
-  //   action: Yup.number().required(),
-  //   userId: Yup.number().required()
-  // });
-
-  // try {
-  //   await schema.validate(autoReplyData);
-  // } catch (error) {
-  //   throw new AppError(error.message);
-  // }
+  validateChatFlowButtons(newFlow.flow);
 
   const { chatFlowId } = req.params;
   const chatFlow = await UpdateChatFlowService({

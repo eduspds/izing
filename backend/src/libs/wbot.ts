@@ -172,10 +172,10 @@ class WhatsAppSessionManager {
 
           const sock = makeWASocket({
             version,
-            logger: baileysLogger,
+            logger: baileysLogger as any,
             auth: {
               creds: state.creds,
-              keys: makeCacheableSignalKeyStore(state.keys, baileysLogger)
+              keys: makeCacheableSignalKeyStore(state.keys, baileysLogger as any)
             },
             getMessage,
             generateHighQualityLinkPreview: false,

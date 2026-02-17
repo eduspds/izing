@@ -14,6 +14,7 @@ import CreateForwardMessageService from "../services/MessageServices/CreateForwa
 import CreateMessageSystemService from "../services/MessageServices/CreateMessageSystemService";
 
 import ListMessagesService from "../services/MessageServices/ListMessagesService";
+import ListTicketMediaService from "../services/MessageServices/ListTicketMediaService";
 import ShowTicketService from "../services/TicketServices/ShowTicketService";
 import CreateLogTicketService from "../services/TicketServices/CreateLogTicketService";
 // import DeleteWhatsAppMessage from "../services/WbotServices/DeleteWhatsAppMessage";
@@ -33,6 +34,23 @@ type MessageData = {
   scheduleDate?: string | Date;
   quotedMsg?: Message;
   idFront?: string;
+};
+
+/** Lista apenas mensagens com mídia do ticket (para barra lateral "Mídia, links e docs") */
+export const listMedia = async (req: Request, res: Response): Promise<Response> => {
+  const { ticketId } = req.params;
+  const { limit } = req.query as { limit?: string };
+  const { tenantId, id: userId, profile: userProfile } = req.user;
+
+  const result = await ListTicketMediaService({
+    ticketId,
+    tenantId,
+    userId: Number(userId),
+    userProfile,
+    limit: limit ? Number(limit) : undefined
+  });
+
+  return res.json(result);
 };
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
@@ -71,26 +89,41 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
   const { tenantId, id: userId, profile: userProfile } = req.user;
   const messageData: MessageData = req.body;
   const medias = req.files as Express.Multer.File[];
-  const ticket = await ShowTicketService({ id: ticketId, tenantId, userId: Number(userId), userProfile });
+  let ticket;
+
+  try {
+    ticket = await ShowTicketService({ id: ticketId, tenantId, userId: Number(userId), userProfile });
+  } catch (err) {
+    logger.error("Message store: ShowTicketService", err);
+    return res.status(404).json({ error: "ERR_NO_TICKET_FOUND" });
+  }
 
   try {
     SetTicketMessagesAsRead(ticket);
   } catch (error) {
-    console.log("SetTicketMessagesAsRead", error);
+    logger.debug("SetTicketMessagesAsRead", error);
   }
 
-  await CreateMessageSystemService({
-    msg: messageData,
-    tenantId,
-    medias,
-    ticket,
-    userId,
-    scheduleDate: messageData.scheduleDate,
-    sendType: messageData.sendType || "chat",
-    status: "pending",
-    idFront: messageData.idFront,
-    userProfile
-  });
+  try {
+    await CreateMessageSystemService({
+      msg: messageData,
+      tenantId,
+      medias: medias || [],
+      ticket,
+      userId,
+      scheduleDate: messageData.scheduleDate,
+      sendType: messageData.sendType || "chat",
+      status: "pending",
+      idFront: messageData.idFront,
+      userProfile
+    });
+  } catch (err) {
+    logger.error("Message store: CreateMessageSystemService", err);
+    return res.status(500).json({
+      error: "ERR_SENDING_MESSAGE",
+      message: err instanceof Error ? err.message : "Erro ao enviar mensagem"
+    });
+  }
 
   // Log de mensagem enviada ou agendada
   try {

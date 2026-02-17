@@ -39,6 +39,7 @@ const ListMessagesService = async ({
   const offset = limit * (+pageNumber - 1);
 
   const { count, rows: messages } = await Message.findAndCountAll({
+    where: { ticketId: ticket.id },
     limit,
     include: [
       "contact",
@@ -50,22 +51,18 @@ const ListMessagesService = async ({
       {
         model: Ticket,
         as: "ticket",
-        where: {
-          contactId: ticket.contactId,
-          whatsappId: ticket.whatsappId,
-          tenantId: ticket.tenantId
-        },
+        where: { id: ticket.id, tenantId: ticket.tenantId },
         required: true
       }
     ],
     offset,
-    // logging: console.log,
     order: [["timestamp", "DESC"], ["createdAt", "DESC"]]
   });
 
   let messagesOffLine: MessagesOffLine[] = [];
   if (+pageNumber === 1) {
     const { rows } = await MessagesOffLine.findAndCountAll({
+      where: { ticketId: ticket.id },
       include: [
         "contact",
         {
@@ -76,11 +73,7 @@ const ListMessagesService = async ({
         {
           model: Ticket,
           as: "ticket",
-          where: {
-            contactId: ticket.contactId,
-            whatsappId: ticket.whatsappId,
-            tenantId: ticket.tenantId
-          },
+          where: { id: ticket.id, tenantId: ticket.tenantId },
           required: true
         }
       ],

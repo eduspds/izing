@@ -31,6 +31,8 @@ contactRoutes.post(
 
 contactRoutes.get("/contacts", isAuth, ContactController.index);
 
+contactRoutes.get("/contacts/:contactId/tickets", isAuth, ContactController.listTicketsByContact);
+
 contactRoutes.get("/contacts/:contactId", isAuth, ContactController.show);
 
 contactRoutes.post("/contacts", isAuth, ContactController.store);

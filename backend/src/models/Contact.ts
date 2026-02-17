@@ -44,6 +44,11 @@ class Contact extends Model<Contact> {
   @Column
   email: string;
 
+  @AllowNull(true)
+  @Default(null)
+  @Column
+  birthDate: string;
+
   @Column
   profilePicUrl: string;
 

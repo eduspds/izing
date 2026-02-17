@@ -22,12 +22,12 @@ class SocketManager {
     const apiUrl = getApiBaseUrl()
     this.socket = io(apiUrl, {
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       timeout: 20000,
       autoConnect: true,
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       auth: {
         token: token
       }

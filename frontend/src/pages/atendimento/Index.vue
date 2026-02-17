@@ -843,20 +843,16 @@
               </q-card-actions>
             </q-card>
           </q-dialog> -->
-            <q-card
-              class="bg-white q-mt-sm btn-rounded"
-              style="width: 100%"
-              bordered
-              flat
+            <q-expansion-item
               :key="ticketFocado.id + $uuid()"
+              icon="people"
+              label="Responsáveis"
+              header-class="text-bold"
+              class="bg-white q-mt-sm btn-rounded overflow-hidden"
             >
-              <q-card-section class="text-bold q-pb-none">
-                Responsáveis
-                <q-separator />
-              </q-card-section>
-              <!-- Victor: Ajustei o padding e o hint e tirei o max-values -->
-              <q-card-section class="q-px-md q-pt-sm">
-                <q-select
+              <q-card flat bordered class="no-shadow">
+                <q-card-section class="q-px-md q-pt-sm">
+                  <q-select
                   square
                   borderless
                   class="q-mb-sm"
@@ -914,255 +910,397 @@
                   </template>
 
                 </q-select>
-              </q-card-section>
-            </q-card>
+                </q-card-section>
+              </q-card>
+            </q-expansion-item>
 
             <!-- Resumo com IA -->
-            <AISummary
-              v-if="ticketFocado && ticketFocado.id"
-              :ticket-id="ticketFocado.id"
-              class="q-mt-sm"
-            />
+            <q-expansion-item
+              icon="smart_toy"
+              label="Resumo com IA"
+              header-class="text-bold"
+              class="bg-white q-mt-sm btn-rounded overflow-hidden"
+            >
+              <AISummary
+                v-if="ticketFocado && ticketFocado.id"
+                :ticket-id="ticketFocado.id"
+                @ver-completo="abrirModalTextoCompleto('Resumo com IA', $event)"
+              />
+            </q-expansion-item>
 
-            <q-card
-              class="bg-white q-mt-sm btn-rounded"
-              style="width: 100%"
-              bordered
-              flat
-              :key="ticketFocado.id + $uuid()"
+            <!-- Mídia, links e docs (miniaturas para download / visualização) -->
+            <q-expansion-item
+              :key="'midia-' + (ticketFocado && ticketFocado.id)"
+              icon="mdi-image-multiple"
+              label="Mídia, links e docs"
+              header-class="text-bold"
+              class="bg-white q-mt-sm btn-rounded overflow-hidden"
+              @show="carregarMidiaTicket"
             >
-              <q-card-section class="text-bold q-pb-none">
-                Mensagens Agendadas Pen.
-                <q-separator />
-              </q-card-section>
-              <q-card-section class="q-pa-none">
-                <div class="scheduled-messages-container">
-                  <template v-if="cScheduledMessagesPending && cScheduledMessagesPending.length > 0">
-                    <q-list>
-                      <q-item
-                        v-for="(message, idx) in cScheduledMessagesPending"
-                        :key="idx"
-                        clickable
+              <q-card flat bordered class="no-shadow">
+                <q-card-section class="q-pa-sm">
+                  <q-inner-loading :showing="loadingMidia">
+                    <q-spinner-dots size="32px" color="primary" />
+                  </q-inner-loading>
+                  <q-scroll-area
+                    v-if="!loadingMidia && midiaTicket.length >= 6"
+                    class="midia-links-docs-scroll"
+                  >
+                    <div class="row q-col-gutter-sm q-pa-xs">
+                      <div
+                        v-for="item in midiaTicket"
+                        :key="item.id"
+                        class="col-4"
                       >
-                        <q-item-section>
-                          <q-item-label caption>
-                            <b>Agendado para:</b> {{ $formatarData(message.scheduleDate, 'dd/MM/yyyy HH:mm') }}
-                            <q-btn
-                              flat
-                              round
-                              dense
-                              icon="mdi-trash-can-outline"
-                              class="absolute-top-right q-mr-sm"
-                              size="sm"
-                              @click="deletarMensagem(message)"
-                            />
-                          </q-item-label>
-                          <q-item-label
-                            caption
-                            lines="2"
-                          > <b>Msg:</b> {{ message.mediaName || message.body }}
-                          </q-item-label>
-                        </q-item-section>
-                        <q-tooltip :delay="500">
-                          <MensagemChat :mensagens="[message]" />
-                        </q-tooltip>
-                      </q-item>
-                    </q-list>
-                  </template>
-                  <template v-else>
-                    <q-item>
-                      <q-item-section>
-                        <q-item-label caption>
-                          Nenhuma mensagem agendada pendente.
-                        </q-item-label>
-                      </q-item-section>
-                    </q-item>
-                  </template>
-                </div>
-              </q-card-section>
-            </q-card>
-            <q-card
-              class="bg-white q-mt-sm btn-rounded"
-              style="width: 100%"
-              bordered
-              flat
-              :key="ticketFocado.id + $uuid() + 'sent'"
-            >
-              <q-card-section class="text-bold q-pb-none">
-                Mensagens Agendadas Env.
-                <q-separator />
-              </q-card-section>
-              <q-card-section class="q-pa-none">
-                <div class="scheduled-messages-container">
-                  <template v-if="cScheduledMessagesSent && cScheduledMessagesSent.length > 0">
-                    <q-list>
-                      <q-item
-                        v-for="(message, idx) in cScheduledMessagesSent"
-                        :key="idx"
-                        clickable
+                        <div
+                          class="midia-thumb rounded-borders overflow-hidden cursor-pointer"
+                          @click="abrirOuBaixarMidia(item)"
+                        >
+                          <q-img
+                            v-if="isImageType(item.mediaType)"
+                            :src="urlMidiaCompleta(item.mediaUrl)"
+                            :ratio="1"
+                            fit="cover"
+                            class="bg-grey-3"
+                          >
+                            <template v-slot:error>
+                              <div class="full-width full-height flex flex-center bg-grey-4">
+                                <q-icon name="mdi-image-broken" size="28px" color="grey-6" />
+                              </div>
+                            </template>
+                          </q-img>
+                          <div
+                            v-else-if="isVideoType(item.mediaType)"
+                            class="midia-placeholder flex flex-center"
+                          >
+                            <q-icon name="mdi-play-circle-outline" size="36px" color="grey-7" />
+                          </div>
+                          <div
+                            v-else-if="isAudioType(item.mediaType)"
+                            class="midia-placeholder flex flex-center"
+                          >
+                            <q-icon name="mdi-microphone" size="36px" color="grey-7" />
+                          </div>
+                          <div
+                            v-else
+                            class="midia-placeholder flex flex-center"
+                          >
+                            <q-icon name="mdi-file-document-outline" size="36px" color="grey-7" />
+                          </div>
+                          <div class="midia-thumb-caption text-caption text-center q-pa-xs bg-grey-2">
+                            {{ $formatarData(item.createdAt, 'dd/MM/yy') }}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </q-scroll-area>
+                  <div
+                    v-else-if="!loadingMidia && midiaTicket.length"
+                    class="row q-col-gutter-sm q-pa-xs"
+                  >
+                    <div
+                      v-for="item in midiaTicket"
+                      :key="item.id"
+                      class="col-4"
+                    >
+                      <div
+                        class="midia-thumb rounded-borders overflow-hidden cursor-pointer"
+                        @click="abrirOuBaixarMidia(item)"
                       >
-                        <q-item-section>
-                          <q-item-label caption>
-                            <b>Enviado em:</b> {{ $formatarData(message.scheduleDate, 'dd/MM/yyyy HH:mm') }}
-                            <q-icon
-                              name="mdi-circle"
-                              :color="message.status === 'sended' ? 'positive' : 'warning'"
-                              size="12px"
-                              class="absolute-top-right q-mr-sm"
-                            />
-                          </q-item-label>
-                          <q-item-label
-                            caption
-                            lines="2"
-                          > <b>Msg:</b> {{ message.mediaName || message.body }}
-                          </q-item-label>
-                        </q-item-section>
-                        <q-tooltip :delay="500">
-                          <MensagemChat :mensagens="[message]" />
-                        </q-tooltip>
-                      </q-item>
-                    </q-list>
-                  </template>
-                  <template v-else>
-                    <q-item>
-                      <q-item-section>
-                        <q-item-label caption>
-                          Nenhuma mensagem agendada enviada.
-                        </q-item-label>
-                      </q-item-section>
-                    </q-item>
-                  </template>
-                </div>
-                <template v-if="cScheduledMessagesSent && cScheduledMessagesSent.length > 0">
-                  <q-separator class="q-mt-sm" />
-                  <div class="q-pa-sm">
-                    <div class="row items-center q-gutter-sm">
-                      <q-icon name="mdi-circle" color="positive" size="12px" />
-                      <span class="text-caption">Enviado</span>
-                      <q-icon name="mdi-circle" color="warning" size="12px" class="q-ml-md" />
-                      <span class="text-caption">Aguardando Recebimento</span>
+                        <q-img
+                          v-if="isImageType(item.mediaType)"
+                          :src="urlMidiaCompleta(item.mediaUrl)"
+                          :ratio="1"
+                          fit="cover"
+                          class="bg-grey-3"
+                        >
+                          <template v-slot:error>
+                            <div class="full-width full-height flex flex-center bg-grey-4">
+                              <q-icon name="mdi-image-broken" size="28px" color="grey-6" />
+                            </div>
+                          </template>
+                        </q-img>
+                        <div
+                          v-else-if="isVideoType(item.mediaType)"
+                          class="midia-placeholder flex flex-center"
+                        >
+                          <q-icon name="mdi-play-circle-outline" size="36px" color="grey-7" />
+                        </div>
+                        <div
+                          v-else-if="isAudioType(item.mediaType)"
+                          class="midia-placeholder flex flex-center"
+                        >
+                          <q-icon name="mdi-microphone" size="36px" color="grey-7" />
+                        </div>
+                        <div
+                          v-else
+                          class="midia-placeholder flex flex-center"
+                        >
+                          <q-icon name="mdi-file-document-outline" size="36px" color="grey-7" />
+                        </div>
+                        <div class="midia-thumb-caption text-caption text-center q-pa-xs bg-grey-2">
+                          {{ $formatarData(item.createdAt, 'dd/MM/yy') }}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </template>
-              </q-card-section>
-            </q-card>
-            <q-card
-              class="bg-white q-mt-sm btn-rounded"
-              style="width: 100%"
-              bordered
-              flat
-              :key="ticketFocado.id + $uuid() + 'transfer'"
-            >
-              <q-card-section class="text-bold q-pb-none">
-                Mensagens de Transferência
-                <q-separator />
-              </q-card-section>
-              <q-card-section class="q-pa-none">
-                <div class="scheduled-messages-container">
-                  <template v-if="cMensagensTransferencia && cMensagensTransferencia.length > 0">
-                    <q-list>
-                      <q-item
-                        v-for="(mensagem, idx) in cMensagensTransferencia"
-                        :key="idx"
-                        clickable
-                      >
-                        <q-item-section>
-                          <q-item-label caption>
-                            <b>Transferido em:</b> {{ $formatarData(mensagem.createdAt, 'dd/MM/yyyy HH:mm') }}
-                          </q-item-label>
-                          <q-item-label
-                            caption
-                            lines="3"
-                            class="q-mt-xs"
-                          >
-                            <b>Contexto:</b> {{ mensagem.mensagemTransferencia }}
-                          </q-item-label>
-                        </q-item-section>
-                        <q-item-section side>
-                          <q-icon
-                            name="mdi-transfer"
-                            color="primary"
-                            size="20px"
-                          />
-                        </q-item-section>
-                      </q-item>
-                    </q-list>
-                  </template>
-                  <template v-else>
-                    <q-item>
-                      <q-item-section>
-                        <q-item-label caption>
-                          Nenhuma mensagem de transferência encontrada.
-                        </q-item-label>
-                      </q-item-section>
-                    </q-item>
-                  </template>
-                </div>
-              </q-card-section>
-            </q-card>
+                  <div v-else-if="!loadingMidia" class="text-center q-pa-md text-grey-6">
+                    <q-icon name="mdi-image-off-outline" size="40px" />
+                    <div class="q-mt-sm">Nenhuma mídia neste atendimento</div>
+                  </div>
+                  <div v-if="!loadingMidia && midiaTicket.length" class="text-caption text-grey-6 q-mt-xs text-center">
+                    Clique para abrir ou baixar · {{ midiaTicket.length }} itens
+                  </div>
+                </q-card-section>
+              </q-card>
+            </q-expansion-item>
 
-            <q-card
-              class="bg-white q-mt-sm btn-rounded"
-              style="width: 100%"
-              bordered
-              flat
-              :key="ticketFocado.id + $uuid() + 'closed'"
-              v-if="ticketFocado.status === 'closed'"
+            <q-expansion-item
+              icon="schedule"
+              label="Mensagens Agendadas Pen."
+              header-class="text-bold"
+              class="bg-white q-mt-sm btn-rounded overflow-hidden"
+              :key="ticketFocado.id + $uuid()"
             >
-              <q-card-section class="text-bold q-pb-none">
-                Motivos de Encerramento
-                <q-separator />
-              </q-card-section>
-              <q-card-section class="q-pa-none">
-                <div class="scheduled-messages-container">
-                  <template v-if="ticketFocado.endConversation">
-                    <q-list>
-                      <q-item clickable>
-                        <q-item-section>
-                          <q-item-label caption>
-                            <b>Encerrado em:</b> {{ formatClosedAt }}
-                          </q-item-label>
-                          <q-item-label
-                            caption
-                            lines="2"
-                            class="q-mt-xs"
-                          >
-                            <b>Motivo:</b> {{ ticketFocado.endConversation.message }}
-                          </q-item-label>
-
-                          <!-- Observação adicional do encerramento -->
-                          <div v-if="ticketFocado.endConversationObservation" class="q-mt-sm">
+              <q-card flat bordered class="no-shadow">
+                <q-card-section class="q-pa-none">
+                  <div class="scheduled-messages-container">
+                    <template v-if="cScheduledMessagesPending && cScheduledMessagesPending.length > 0">
+                      <q-list>
+                        <q-item
+                          v-for="(message, idx) in cScheduledMessagesPending"
+                          :key="idx"
+                        >
+                          <q-item-section>
+                            <q-item-label caption>
+                              <b>Agendado para:</b> {{ $formatarData(message.scheduleDate, 'dd/MM/yyyy HH:mm') }}
+                              <q-btn
+                                flat
+                                round
+                                dense
+                                icon="mdi-trash-can-outline"
+                                class="absolute-top-right q-mr-sm"
+                                size="sm"
+                                @click.stop="deletarMensagem(message)"
+                              />
+                            </q-item-label>
                             <q-item-label
                               caption
-                              lines="3"
-                              class="q-mt-xs"
+                              class="texto-clicavel-modal"
+                              @click="abrirModalTextoCompleto('Mensagem agendada', message.mediaName || message.body)"
                             >
-                              <b>Observação:</b> {{ ticketFocado.endConversationObservation }}
+                              <b>Msg:</b> {{ (message.mediaName || message.body || '').length > 80 ? (message.mediaName || message.body).substring(0, 80) + '...' : (message.mediaName || message.body) }}
                             </q-item-label>
-                          </div>
-                        </q-item-section>
-                        <q-item-section side>
-                          <q-icon
-                            name="mdi-close-circle"
-                            color="negative"
-                            size="20px"
-                          />
+                          </q-item-section>
+                          <q-tooltip v-if="(message.mediaName || message.body || '').length > 80" :delay="300">Clique para ver completo</q-tooltip>
+                        </q-item>
+                      </q-list>
+                    </template>
+                    <template v-else>
+                      <q-item>
+                        <q-item-section>
+                          <q-item-label caption>
+                            Nenhuma mensagem agendada pendente.
+                          </q-item-label>
                         </q-item-section>
                       </q-item>
-                    </q-list>
+                    </template>
+                  </div>
+                </q-card-section>
+              </q-card>
+            </q-expansion-item>
+            <q-expansion-item
+              icon="send"
+              label="Mensagens Agendadas Env."
+              header-class="text-bold"
+              class="bg-white q-mt-sm btn-rounded overflow-hidden"
+              :key="ticketFocado.id + $uuid() + 'sent'"
+            >
+              <q-card flat bordered class="no-shadow">
+                <q-card-section class="q-pa-none">
+                  <div class="scheduled-messages-container">
+                    <template v-if="cScheduledMessagesSent && cScheduledMessagesSent.length > 0">
+                      <q-list>
+                        <q-item v-for="(message, idx) in cScheduledMessagesSent" :key="idx">
+                          <q-item-section>
+                            <q-item-label caption>
+                              <b>Enviado em:</b> {{ $formatarData(message.scheduleDate, 'dd/MM/yyyy HH:mm') }}
+                              <q-icon
+                                name="mdi-circle"
+                                :color="message.status === 'sended' ? 'positive' : 'warning'"
+                                size="12px"
+                                class="absolute-top-right q-mr-sm"
+                              />
+                            </q-item-label>
+                            <q-item-label
+                              caption
+                              class="texto-clicavel-modal"
+                              @click="abrirModalTextoCompleto('Mensagem agendada enviada', message.mediaName || message.body)"
+                            >
+                              <b>Msg:</b> {{ (message.mediaName || message.body || '').length > 80 ? (message.mediaName || message.body).substring(0, 80) + '...' : (message.mediaName || message.body) }}
+                            </q-item-label>
+                          </q-item-section>
+                          <q-tooltip v-if="(message.mediaName || message.body || '').length > 80" :delay="300">Clique para ver completo</q-tooltip>
+                        </q-item>
+                      </q-list>
+                    </template>
+                    <template v-else>
+                      <q-item>
+                        <q-item-section>
+                          <q-item-label caption>
+                            Nenhuma mensagem agendada enviada.
+                          </q-item-label>
+                        </q-item-section>
+                      </q-item>
+                    </template>
+                  </div>
+                  <template v-if="cScheduledMessagesSent && cScheduledMessagesSent.length > 0">
+                    <q-separator class="q-mt-sm" />
+                    <div class="q-pa-sm">
+                      <div class="row items-center q-gutter-sm">
+                        <q-icon name="mdi-circle" color="positive" size="12px" />
+                        <span class="text-caption">Enviado</span>
+                        <q-icon name="mdi-circle" color="warning" size="12px" class="q-ml-md" />
+                        <span class="text-caption">Aguardando Recebimento</span>
+                      </div>
+                    </div>
                   </template>
-                  <template v-else>
-                    <q-item>
-                      <q-item-section>
-                        <q-item-label caption>
-                          Nenhum motivo de encerramento encontrado.
-                        </q-item-label>
-                      </q-item-section>
-                    </q-item>
-                  </template>
-                </div>
-              </q-card-section>
-            </q-card>
+                </q-card-section>
+              </q-card>
+            </q-expansion-item>
+            <q-expansion-item
+              icon="mdi-transfer"
+              label="Mensagens de Transferência"
+              header-class="text-bold"
+              class="bg-white q-mt-sm btn-rounded overflow-hidden"
+              :key="ticketFocado.id + $uuid() + 'transfer'"
+            >
+              <q-card flat bordered class="no-shadow">
+                <q-card-section class="q-pa-none">
+                  <div class="scheduled-messages-container">
+                    <template v-if="cMensagensTransferencia && cMensagensTransferencia.length > 0">
+                      <q-list>
+                        <q-item
+                          v-for="(mensagem, idx) in cMensagensTransferencia"
+                          :key="idx"
+                        >
+                          <q-item-section>
+                            <q-item-label caption>
+                              <b>Transferido em:</b> {{ $formatarData(mensagem.createdAt, 'dd/MM/yyyy HH:mm') }}
+                            </q-item-label>
+                            <q-item-label
+                              caption
+                              class="q-mt-xs texto-clicavel-modal"
+                              @click="abrirModalTextoCompleto('Contexto da transferência', mensagem.mensagemTransferencia || '')"
+                            >
+                              <b>Contexto:</b> {{ (mensagem.mensagemTransferencia || '').length > 100 ? (mensagem.mensagemTransferencia || '').substring(0, 100) + '...' : (mensagem.mensagemTransferencia || '') }}
+                            </q-item-label>
+                          </q-item-section>
+                          <q-item-section side>
+                            <q-icon
+                              name="mdi-transfer"
+                              color="primary"
+                              size="20px"
+                            />
+                          </q-item-section>
+                          <q-tooltip v-if="(mensagem.mensagemTransferencia || '').length > 100" :delay="300">Clique para ver o texto completo</q-tooltip>
+                        </q-item>
+                      </q-list>
+                    </template>
+                    <template v-else>
+                      <q-item>
+                        <q-item-section>
+                          <q-item-label caption>
+                            Nenhuma mensagem de transferência encontrada.
+                          </q-item-label>
+                        </q-item-section>
+                      </q-item>
+                    </template>
+                  </div>
+                </q-card-section>
+              </q-card>
+            </q-expansion-item>
+
+            <!-- Modal para visualizar texto completo -->
+            <q-dialog v-model="modalTextoCompleto" persistent class="modal-texto-completo">
+              <q-card class="rounded-xl" style="min-width: 320px; max-width: 90vw; max-height: 80vh">
+                <q-card-section class="row items-center q-pb-none">
+                  <q-item-label class="text-h6">{{ modalTextoCompletoTitulo }}</q-item-label>
+                  <q-space />
+                  <q-btn icon="close" flat round dense v-close-popup @click="fecharModalTextoCompleto" />
+                </q-card-section>
+                <q-separator />
+                <q-card-section class="q-pt-md scroll-area-texto-completo">
+                  <div class="texto-completo-conteudo">{{ modalTextoCompletoConteudo }}</div>
+                </q-card-section>
+                <q-card-actions align="right">
+                  <q-btn flat label="Fechar" color="primary" v-close-popup @click="fecharModalTextoCompleto" />
+                </q-card-actions>
+              </q-card>
+            </q-dialog>
+
+            <q-expansion-item
+              v-if="ticketFocado.status === 'closed'"
+              icon="mdi-close-circle"
+              label="Motivos de Encerramento"
+              header-class="text-bold"
+              class="bg-white q-mt-sm btn-rounded overflow-hidden"
+              :key="ticketFocado.id + $uuid() + 'closed'"
+            >
+              <q-card flat bordered class="no-shadow">
+                <q-card-section class="q-pa-none">
+                  <div class="scheduled-messages-container">
+                    <template v-if="ticketFocado.endConversation">
+                      <q-list>
+                        <q-item>
+                          <q-item-section>
+                            <q-item-label caption>
+                              <b>Encerrado em:</b> {{ formatClosedAt }}
+                            </q-item-label>
+                            <q-item-label
+                              caption
+                              class="q-mt-xs"
+                              :class="{ 'texto-clicavel-modal': (ticketFocado.endConversation.message || '').length > 80 }"
+                              @click="(ticketFocado.endConversation.message || '').length > 80 && abrirModalTextoCompleto('Motivo de encerramento', ticketFocado.endConversation.message)"
+                            >
+                              <b>Motivo:</b> {{ (ticketFocado.endConversation.message || '').length > 80 ? (ticketFocado.endConversation.message || '').substring(0, 80) + '...' : (ticketFocado.endConversation.message || '') }}
+                            </q-item-label>
+
+                            <!-- Observação adicional do encerramento -->
+                            <div v-if="ticketFocado.endConversationObservation" class="q-mt-sm">
+                              <q-item-label
+                                caption
+                                class="q-mt-xs texto-clicavel-modal"
+                                @click="abrirModalTextoCompleto('Observação do encerramento', ticketFocado.endConversationObservation)"
+                              >
+                                <b>Observação:</b> {{ (ticketFocado.endConversationObservation || '').length > 100 ? (ticketFocado.endConversationObservation || '').substring(0, 100) + '...' : (ticketFocado.endConversationObservation || '') }}
+                              </q-item-label>
+                              <q-tooltip v-if="(ticketFocado.endConversationObservation || '').length > 100" :delay="300">Clique para ver o texto completo</q-tooltip>
+                            </div>
+                          </q-item-section>
+                          <q-item-section side>
+                            <q-icon
+                              name="mdi-close-circle"
+                              color="negative"
+                              size="20px"
+                            />
+                          </q-item-section>
+                        </q-item>
+                      </q-list>
+                    </template>
+                    <template v-else>
+                      <q-item>
+                        <q-item-section>
+                          <q-item-label caption>
+                            Nenhum motivo de encerramento encontrado.
+                          </q-item-label>
+                        </q-item-section>
+                      </q-item>
+                    </template>
+                  </div>
+                </q-card-section>
+              </q-card>
+            </q-expansion-item>
           </div>
         </q-scroll-area>
       </q-drawer>
@@ -1324,7 +1462,7 @@
 <script>
 import ItemStatusChannel from 'src/pages/sessaoWhatsapp/ItemStatusChannel.vue'
 import ItemTicket from './ItemTicket'
-import { ConsultarLogsTicket, ConsultarTickets, DeletarMensagem } from 'src/service/tickets'
+import { ConsultarLogsTicket, ConsultarTickets, DeletarMensagem, ListarMidiaTicket } from 'src/service/tickets'
 import { mapGetters } from 'vuex'
 import mixinSockets from './mixinSockets'
 import socketInitial from 'src/layouts/socketInitial'
@@ -1350,6 +1488,7 @@ import { messagesLog } from '../../utils/constants'
 import versionCheckMixin from 'src/mixins/versionCheck'
 import ModalAtualizacao from 'src/components/ModalAtualizacao.vue'
 import { getSocket } from 'src/utils/socket'
+import { getApiBaseUrl } from 'src/config/apiUrl'
 export default {
   name: 'IndexAtendimento',
   mixins: [mixinSockets, socketInitial, versionCheckMixin],
@@ -1384,6 +1523,8 @@ export default {
       toolbarSearch: true,
       drawerTickets: true,
       drawerContact: true,
+      midiaTicket: [],
+      loadingMidia: false,
       profile: localStorage.getItem('profile'),
       modalNovoTicket: false,
       filterBusca: '',
@@ -1415,7 +1556,10 @@ export default {
       logsTicket: [],
       chatInternoAberto: false,
       chatInternoContatoAtivo: null,
-      chatInternoSocketListeners: []
+      chatInternoSocketListeners: [],
+      modalTextoCompleto: false,
+      modalTextoCompletoTitulo: '',
+      modalTextoCompletoConteudo: ''
     }
   },
   watch: {
@@ -1585,6 +1729,16 @@ export default {
     //     this.$notificarErro('Erro ao salvar etiquetas', error)
     //   }
     // },
+    abrirModalTextoCompleto (titulo, conteudo) {
+      this.modalTextoCompletoTitulo = titulo || 'Texto completo'
+      this.modalTextoCompletoConteudo = typeof conteudo === 'string' ? conteudo : (conteudo || '')
+      this.modalTextoCompleto = true
+    },
+    fecharModalTextoCompleto () {
+      this.modalTextoCompleto = false
+      this.modalTextoCompletoTitulo = ''
+      this.modalTextoCompletoConteudo = ''
+    },
     openWalletModal () {
       this.walletModalVisible = true
       this.selectedWallets = [...this.ticketFocado.contact.wallets] // Preencha com as carteiras selecionadas atuais
@@ -1663,6 +1817,22 @@ export default {
       console.log('🎯 Queues atualizadas via evento:', queues)
       // Forçar atualização do componente
       this.$forceUpdate()
+    },
+    onVisibilityChange () {
+      if (document.visibilityState === 'hidden') {
+        this._visibilityHiddenAt = Date.now()
+        return
+      }
+      if (document.visibilityState !== 'visible') return
+      const ticketId = this.$store.getters.ticketFocado?.id
+      if (!ticketId) return
+      const hiddenMs = this._visibilityHiddenAt ? Date.now() - this._visibilityHiddenAt : 0
+      this._visibilityHiddenAt = null
+      if (hiddenMs < 2000) return
+      this.$store.dispatch('LocalizarMensagensTicket', { ticketId, pageNumber: 1 }).then(() => {
+        this.$root.$emit('scrollToBottomMessageChat')
+      }).catch(() => {})
+      console.log('📥 [VISIBILIDADE] Aba visível após', Math.round(hiddenMs / 1000), 's – mensagens recarregadas')
     },
     onScroll (info) {
       if (info.verticalPercentage <= 0.85) return
@@ -1930,6 +2100,59 @@ export default {
       const { data } = await ConsultarLogsTicket({ ticketId: this.ticketFocado.id })
       this.logsTicket = data
       this.exibirModalLogs = true
+    },
+    async carregarMidiaTicket () {
+      if (!this.ticketFocado || !this.ticketFocado.id) return
+      this.loadingMidia = true
+      this.midiaTicket = []
+      try {
+        const { data } = await ListarMidiaTicket(this.ticketFocado.id, 200)
+        this.midiaTicket = (data && data.items) || []
+      } catch (err) {
+        console.error('Erro ao carregar mídias do ticket:', err)
+        this.$notificarErro('Não foi possível carregar as mídias.', err)
+      } finally {
+        this.loadingMidia = false
+      }
+    },
+    urlMidiaCompleta (mediaUrl) {
+      if (!mediaUrl) return ''
+      if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) return mediaUrl
+      const base = getApiBaseUrl().replace(/\/$/, '')
+      return mediaUrl.startsWith('/') ? base + mediaUrl : base + '/' + mediaUrl
+    },
+    abrirOuBaixarMidia (item) {
+      const url = this.urlMidiaCompleta(item.mediaUrl)
+      if (!url) return
+      const isImage = this.isImageType(item.mediaType)
+      const isVideo = this.isVideoType(item.mediaType)
+      if (isImage || isVideo) {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      } else {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = item.body || 'arquivo'
+        a.target = '_blank'
+        a.rel = 'noopener noreferrer'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      }
+    },
+    isImageType (mediaType) {
+      if (!mediaType) return false
+      const t = (mediaType || '').toLowerCase()
+      return ['image', 'sticker'].includes(t) || t.startsWith('image/')
+    },
+    isVideoType (mediaType) {
+      if (!mediaType) return false
+      const t = (mediaType || '').toLowerCase()
+      return t === 'video' || t.startsWith('video/')
+    },
+    isAudioType (mediaType) {
+      if (!mediaType) return false
+      const t = (mediaType || '').toLowerCase()
+      return ['audio', 'ptt'].includes(t) || t.startsWith('audio/')
     },
     // Método para formatar chaves dos metadados de forma legível
     formatMetadataKey (key) {
@@ -2267,6 +2490,9 @@ export default {
     this.$root.$on('update-ticket:info-contato', this.setValueMenuContact)
     this.$root.$on('user-queues-updated', this.onUserQueuesUpdated)
     this.socketTicketList()
+    this._visibilityHiddenAt = null
+    this._onVisibilityChange = () => this.onVisibilityChange()
+    document.addEventListener('visibilitychange', this._onVisibilityChange)
     this.pesquisaTickets = JSON.parse(localStorage.getItem('filtrosAtendimento'))
     this.$root.$on('handlerNotifications', this.handlerNotifications)
 
@@ -2357,6 +2583,9 @@ export default {
     // ✅ Limpar listeners de socket do chat interno
     this.cleanupChatInternoSocketListeners()
 
+    if (this._onVisibilityChange) {
+      document.removeEventListener('visibilitychange', this._onVisibilityChange)
+    }
     // this.socketDisconnect()
     this.$store.commit('TICKET_FOCADO', {})
   }
@@ -2431,11 +2660,48 @@ export default {
   overflow-y: auto
   overflow-x: hidden
 
+.midia-thumb
+  aspect-ratio: 1
+  min-height: 80px
+  border: 1px solid rgba(0, 0, 0, 0.08)
+  transition: opacity 0.15s ease
+  &:hover
+    opacity: 0.9
+
+.midia-placeholder
+  aspect-ratio: 1
+  min-height: 80px
+  background: rgba(0, 0, 0, 0.04)
+
+.midia-thumb-caption
+  font-size: 0.7rem
+
+.midia-links-docs-scroll
+  height: 320px
+  max-height: 50vh
+
 .conexao-filtrada
   border: 2px solid $primary !important
   box-shadow: 0 0 8px rgba(33, 150, 243, 0.3) !important
   transform: scale(1.05)
   transition: all 0.2s ease
   opacity: 1 !important
+
+.texto-clicavel-modal
+  cursor: pointer
+  word-break: break-word
+  &:hover
+    color: $primary
+    text-decoration: underline
+
+.scroll-area-texto-completo
+  max-height: 60vh
+  overflow-y: auto
+  overflow-x: hidden
+
+.texto-completo-conteudo
+  white-space: pre-wrap
+  word-break: break-word
+  line-height: 1.5
 
 </style>

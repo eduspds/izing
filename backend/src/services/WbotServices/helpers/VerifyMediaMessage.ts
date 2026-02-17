@@ -52,7 +52,7 @@ const VerifyMediaMessage = async (
   }
 
   const messageData = {
-    messageId: msg.id.id,
+    messageId: String(msg.id?.id ?? msg.id?._serialized ?? ""),
     ticketId: ticket.id,
     contactId: msg.fromMe ? undefined : contact.id,
     body: msg.body || filename,

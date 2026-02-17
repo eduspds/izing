@@ -27,11 +27,31 @@ socket.on(`tokenInvalid:${socket.id}`, () => {
 export default {
   data () {
     return {
-      socketListeners: [] // ✅ NOVO: Controlar listeners
+      socketListeners: [], // ✅ NOVO: Controlar listeners
+      _socketReconnectRefetchSetup: false
     }
   },
 
   methods: {
+    // Refetch mensagens do ticket focado ao reconectar o socket (evita mensagens que “aparecem só depois” por evento perdido)
+    setupSocketReconnectRefetch () {
+      if (this._socketReconnectRefetchSetup) return
+      this._socketReconnectRefetchSetup = true
+      let alreadyConnectedOnce = false
+      socket.on('connect', () => {
+        if (alreadyConnectedOnce && this.$store?.getters?.ticketFocado?.id) {
+          this.$store.dispatch('LocalizarMensagensTicket', {
+            ticketId: this.$store.getters.ticketFocado.id,
+            pageNumber: 1
+          }).then(() => {
+            this.scrollToBottom()
+          }).catch(() => {})
+          console.log('📥 [SOCKET] Reconectado – mensagens do ticket atual recarregadas')
+        }
+        alreadyConnectedOnce = true
+      })
+    },
+
     scrollToBottom () {
       setTimeout(() => {
         this.$root.$emit('scrollToBottomMessageChat')
@@ -56,7 +76,7 @@ export default {
             const updatedTicket = {
               ...data.ticket,
               // Preservar showConfidentialMessages se já estiver setado
-              showConfidentialMessages: currentTicket?.showConfidentialMessages !== undefined
+              showConfidentialMessages: (currentTicket && currentTicket.showConfidentialMessages !== undefined)
                 ? currentTicket.showConfidentialMessages
                 : (data.ticket.isConfidential && data.ticket.confidentialUserId === userId)
             }
@@ -80,48 +100,63 @@ export default {
     socketTicketListNew () {
       console.log('🔌 Configurando socketTicketListNew listeners')
 
+      this.setupSocketReconnectRefetch()
+
       // ✅ Limpar listeners antigos
       this.cleanupSocketListeners('ticketList')
 
       const ticketListListener = async (data) => {
+        if (!data || typeof data !== 'object') return
         if (data.type === 'chat:create') {
-          // Para áudios/mídias, adicionar pequeno delay antes de atualizar
+          if (!data.payload || !data.payload.ticket || !data.payload.ticket.id) {
+            console.warn('[SOCKET] chat:create ignorado - payload ou ticket ausente', data.payload ? 'payload sem ticket' : 'sem payload')
+            return
+          }
+          const ticketIdPayload = Number(data.payload.ticket.id)
+          const ticketFocadoId = this.$store.getters.ticketFocado?.id != null ? Number(this.$store.getters.ticketFocado.id) : null
+          const isTicketFocado = ticketFocadoId !== null && ticketFocadoId === ticketIdPayload
+          console.log('📨 [SOCKET] chat:create recebido:', { ticketIdPayload, ticketFocadoId, isTicketFocado, msgId: data.payload.id })
+          try {
+          // Pequeno delay só para mídia pesada (evita flash antes do carregamento)
           const isMedia = data.payload.mediaType && data.payload.mediaType !== 'chat'
-
           if (isMedia) {
-            console.log('Mensagem de mídia recebida, aguardando 300ms...', data.payload.mediaType)
-            await new Promise(resolve => setTimeout(resolve, 300))
+            await new Promise(resolve => setTimeout(resolve, 100))
           }
 
-          // Sempre atualizar mensagens do ticket focado, independente de quem enviou
+          // UPDATE_MESSAGES só adiciona ao corpo do chat se isTicketFocado; sempre atualiza a lista lateral
           this.$store.commit('UPDATE_MESSAGES', data.payload)
+          if (isTicketFocado) this._lastChatCreateForFocusedAt = Date.now()
           this.scrollToBottom()
-
-          // ✅ NOVO: Atualizar ticket na paginação quando recebe nova mensagem
-          // Criar objeto de ticket atualizado com lastMessage e lastMessageAt
-          // Garantir que lastMessageAt seja sempre um timestamp válido (número)
-          let lastMessageAtValue = new Date().getTime() // Valor padrão: agora
-          if (data.payload.timestamp) {
-            lastMessageAtValue = typeof data.payload.timestamp === 'number'
-              ? data.payload.timestamp
-              : new Date(data.payload.timestamp).getTime()
-          } else if (data.payload.createdAt) {
-            lastMessageAtValue = typeof data.payload.createdAt === 'number'
-              ? data.payload.createdAt
-              : new Date(data.payload.createdAt).getTime()
+          // Quando a mensagem é mídia, imagens carregam depois e alteram a altura; re-scroll para não deixar mensagens "para trás"
+          if (isMedia && isTicketFocado) {
+            setTimeout(() => this.scrollToBottom(), 450)
+            setTimeout(() => this.scrollToBottom(), 1100)
           }
-          // Se ainda for NaN, usar timestamp atual
-          if (isNaN(lastMessageAtValue)) {
-            console.warn('⚠️ [SOCKET] lastMessageAt inválido, usando timestamp atual:', {
-              timestamp: data.payload.timestamp,
-              createdAt: data.payload.createdAt,
-              ticketLastMessageAt: data.payload.ticket?.lastMessageAt
-            })
+          } catch (err) {
+            console.error('[SOCKET] Erro ao processar chat:create (UPDATE_MESSAGES/scroll):', err)
+          }
+
+          // ✅ Atualizar ticket na paginação: lastMessageAt em ms (backend/Baileys pode enviar em segundos)
+          let lastMessageAtValue = new Date().getTime()
+          const rawTs = data.payload.timestamp != null ? data.payload.timestamp : (data.payload.createdAt != null ? data.payload.createdAt : (data.payload.ticket && data.payload.ticket.lastMessageAt))
+          if (rawTs != null) {
+            let ms = 0
+            if (typeof rawTs === 'number') {
+              ms = rawTs < 1e12 ? rawTs * 1000 : rawTs
+            } else if (typeof rawTs === 'string' && /^\d+$/.test(rawTs)) {
+              const n = Number(rawTs)
+              ms = n < 1e12 ? n * 1000 : n
+            } else {
+              ms = new Date(rawTs).getTime()
+            }
+            if (!isNaN(ms)) lastMessageAtValue = ms
+          }
+          if (!Number.isFinite(lastMessageAtValue)) {
             lastMessageAtValue = new Date().getTime()
           }
 
           console.log('📨 [SOCKET] Nova mensagem recebida:', {
-            ticketId: data.payload.ticket?.id,
+            ticketId: (data.payload.ticket && data.payload.ticket.id),
             lastMessageAt: lastMessageAtValue,
             hasLastMessage: !!(data.payload.mediaName || data.payload.body)
           })
@@ -134,7 +169,11 @@ export default {
           }
 
           // Atualizar ticket na paginação (isso também move para o topo se necessário)
-          this.updateTicketInPagination(updatedTicket)
+          try {
+            this.updateTicketInPagination(updatedTicket)
+          } catch (errPagination) {
+            console.warn('[SOCKET] Erro em updateTicketInPagination (mensagem já foi adicionada):', errPagination)
+          }
 
           // Verificar se o usuário tem permissão para ver este ticket
           const currentUserId = +localStorage.getItem('userId')
@@ -157,12 +196,12 @@ export default {
             canViewTicket = isUserTicket || isFromUserQueue
           }
 
-          // Notificar apenas se for mensagem não lida de outro usuário/ticket E o usuário pode ver o ticket
+          // Notificar apenas se for mensagem não lida de outro usuário/ticket E o usuário pode ver o ticket (reutiliza ticketFocadoId já declarado acima)
           if (
             canViewTicket &&
             !data.payload.read &&
             (data.payload.ticket.userId === userId || !data.payload.ticket.userId) &&
-            data.payload.ticket.id !== this.$store.getters.ticketFocado.id
+            data.payload.ticket.id !== ticketFocadoId
           ) {
             if (checkTicketFilter(data.payload.ticket)) {
               this.handlerNotifications(data.payload)
@@ -185,17 +224,35 @@ export default {
         }
 
         if (data.type === 'ticket:update') {
+          if (!data.payload || data.payload.id == null) return
+          const tf = this.$store.getters.ticketFocado
+          const payloadId = Number(data.payload.id)
+          const isTicketFocado = tf && tf.id != null && Number(tf.id) === payloadId
           console.log('🔄 [WEBSOCKET] Recebida atualização de ticket:', {
             ticketId: data.payload.id,
             status: data.payload.status,
             lastMessageAt: data.payload.lastMessageAt,
-            ticketFocadoId: this.$store.getters.ticketFocado.id,
-            isTicketFocado: this.$store.getters.ticketFocado.id === data.payload.id
+            ticketFocadoId: (tf && tf.id),
+            isTicketFocado
           })
 
           this.$store.commit('UPDATE_TICKET', data.payload)
           // Atualizar ticket na estrutura de paginação
           this.updateTicketInPagination(data.payload)
+
+          // Ticket focado: recarregar mensagens só se não acabamos de receber chat:create (evita refetch sobrescrever mensagem que acabou de chegar)
+          if (isTicketFocado && typeof this.$store.dispatch === 'function') {
+            const now = Date.now()
+            const lastRefetch = this._lastTicketFocadoRefetchAt || 0
+            const lastChatCreate = this._lastChatCreateForFocusedAt || 0
+            if (now - lastRefetch > 5000 && now - lastChatCreate > 12000) {
+              this._lastTicketFocadoRefetchAt = now
+              this.$store.dispatch('LocalizarMensagensTicket', { ticketId: payloadId, pageNumber: 1 })
+                .then(() => { this.scrollToBottom && this.scrollToBottom() })
+                .catch(() => {})
+              console.log('📥 [SOCKET] ticket:update do ticket focado – mensagens recarregadas')
+            }
+          }
 
           console.log('✅ [WEBSOCKET] Ticket atualizado no store:', this.$store.getters.ticketFocado)
         }
@@ -378,8 +435,8 @@ export default {
           normalizedTicket.lastMessageAt = existingTicket.lastMessageAt
         }
 
-        // Verificar se o ticket deve ir para o topo
-        if (this.shouldTicketGoToTop(updatedTicket, currentStatus, targetStatus, existingTicket) && currentIndex > 0) {
+        // Verificar se o ticket deve ir para o topo (usar normalizedTicket para lastMessageAt já em número)
+        if (this.shouldTicketGoToTop(normalizedTicket, currentStatus, targetStatus, existingTicket) && currentIndex > 0) {
           console.log('⬆️ [SOCKET] Ticket deve ir para o topo - movendo')
           // Remover da posição atual
           this.ticketsPagination[targetStatus].tickets.splice(currentIndex, 1)
@@ -405,8 +462,7 @@ export default {
       if (targetStatus) {
         console.log(`➕ [SOCKET] Adicionando ticket ao status: ${targetStatus}`)
 
-        // Verificar se o ticket deve ir para o topo
-        if (this.shouldTicketGoToTop(updatedTicket, currentStatus, targetStatus, null)) {
+        if (this.shouldTicketGoToTop(normalizedTicket, currentStatus, targetStatus, null)) {
           console.log('⬆️ [SOCKET] Ticket deve ir para o topo - adicionando no topo da lista')
           this.ticketsPagination[targetStatus].tickets.unshift(normalizedTicket)
         } else {
@@ -449,22 +505,24 @@ export default {
         normalized.tags = ticket.contact.tags || ticket.tags || []
       }
 
-      // ✅ GARANTIR: Preservar lastMessage e lastMessageAt se existirem
+      // ✅ GARANTIR: Preservar lastMessage e lastMessageAt se existirem (aceitar LastMessageAt do backend)
       if (ticket.lastMessage) {
         normalized.lastMessage = ticket.lastMessage
       }
-      if (ticket.lastMessageAt) {
-        // Garantir que lastMessageAt seja um número (timestamp) válido
+      const rawLastMessageAt = ticket.lastMessageAt != null ? ticket.lastMessageAt : ticket.LastMessageAt
+      if (rawLastMessageAt != null && rawLastMessageAt !== '') {
         let lastMessageAtValue
-        if (typeof ticket.lastMessageAt === 'number') {
-          lastMessageAtValue = ticket.lastMessageAt
-        } else if (ticket.lastMessageAt instanceof Date) {
-          lastMessageAtValue = ticket.lastMessageAt.getTime()
+        if (typeof rawLastMessageAt === 'number') {
+          lastMessageAtValue = rawLastMessageAt < 1e12 ? rawLastMessageAt * 1000 : rawLastMessageAt
+        } else if (rawLastMessageAt instanceof Date) {
+          lastMessageAtValue = rawLastMessageAt.getTime()
+        } else if (typeof rawLastMessageAt === 'string' && /^\d+$/.test(rawLastMessageAt)) {
+          const n = Number(rawLastMessageAt)
+          lastMessageAtValue = n < 1e12 ? n * 1000 : n
         } else {
-          lastMessageAtValue = new Date(ticket.lastMessageAt).getTime()
+          lastMessageAtValue = new Date(rawLastMessageAt).getTime()
         }
-        // Se ainda for NaN, não definir lastMessageAt
-        if (!isNaN(lastMessageAtValue)) {
+        if (Number.isFinite(lastMessageAtValue)) {
           normalized.lastMessageAt = lastMessageAtValue
         }
       }
@@ -482,13 +540,16 @@ export default {
     },
 
     shouldTicketGoToTop (updatedTicket, currentStatus, targetStatus, existingTicket) {
+      // Aceitar lastMessageAt em camelCase ou PascalCase (backend pode enviar LastMessageAt)
+      const lastMessageAt = updatedTicket.lastMessageAt != null ? updatedTicket.lastMessageAt : updatedTicket.LastMessageAt
+      const existingLastMessageAtVal = existingTicket && (existingTicket.lastMessageAt != null ? existingTicket.lastMessageAt : existingTicket.LastMessageAt)
       console.log('🔍 [SOCKET] Verificando se ticket deve ir para o topo:', {
         ticketId: updatedTicket.id,
         isTransference: updatedTicket.isTransference,
         currentStatus,
         targetStatus,
-        lastMessageAt: updatedTicket.lastMessageAt,
-        existingLastMessageAt: existingTicket?.lastMessageAt,
+        lastMessageAt,
+        existingLastMessageAt: existingLastMessageAtVal,
         updatedAt: updatedTicket.updatedAt
       })
 
@@ -533,52 +594,60 @@ export default {
 
       // Se não mudou de status, só deve subir se tiver nova mensagem
       if (currentStatus === targetStatus) {
+        const existingLastMessageAt = existingTicket && (existingTicket.lastMessageAt != null ? existingTicket.lastMessageAt : existingTicket.LastMessageAt)
+        const updatedLastMessageAt = updatedTicket.lastMessageAt != null ? updatedTicket.lastMessageAt : updatedTicket.LastMessageAt
         // Se temos o ticket existente, comparar lastMessageAt
-        if (existingTicket && existingTicket.lastMessageAt && updatedTicket.lastMessageAt) {
-          const existingTime = typeof existingTicket.lastMessageAt === 'number'
-            ? existingTicket.lastMessageAt
-            : new Date(existingTicket.lastMessageAt).getTime()
-
-          const updatedTime = typeof updatedTicket.lastMessageAt === 'number'
-            ? updatedTicket.lastMessageAt
-            : new Date(updatedTicket.lastMessageAt).getTime()
+        if (existingTicket && existingLastMessageAt != null && updatedLastMessageAt != null) {
+          const toTime = (v) => {
+            if (typeof v === 'number') return v < 1e12 ? v * 1000 : v
+            if (typeof v === 'string' && /^\d+$/.test(v)) {
+              const n = Number(v)
+              return n < 1e12 ? n * 1000 : n
+            }
+            return new Date(v).getTime()
+          }
+          const existingTime = toTime(existingLastMessageAt)
+          const updatedTime = toTime(updatedLastMessageAt)
 
           // Se lastMessageAt não mudou, não deve subir
-          if (!isNaN(existingTime) && !isNaN(updatedTime) && existingTime === updatedTime) {
+          if (!Number.isNaN(existingTime) && !Number.isNaN(updatedTime) && existingTime === updatedTime) {
             console.log('❌ [SOCKET] lastMessageAt não mudou - não vai para o topo')
             return false
           }
         }
 
-        // Verificar se há nova mensagem recente
-        if (updatedTicket.lastMessageAt) {
+        // Verificar se há nova mensagem recente (aceitar LastMessageAt em ms, segundos ou string numérica)
+        if (updatedLastMessageAt != null) {
           const now = new Date().getTime()
-          let lastMessageTime
-          if (typeof updatedTicket.lastMessageAt === 'number') {
-            lastMessageTime = updatedTicket.lastMessageAt
-          } else if (updatedTicket.lastMessageAt instanceof Date) {
-            lastMessageTime = updatedTicket.lastMessageAt.getTime()
+          let lastMessageTime = NaN
+          if (typeof updatedLastMessageAt === 'number') {
+            lastMessageTime = updatedLastMessageAt < 1e12 ? updatedLastMessageAt * 1000 : updatedLastMessageAt
+          } else if (updatedLastMessageAt instanceof Date) {
+            lastMessageTime = updatedLastMessageAt.getTime()
+          } else if (typeof updatedLastMessageAt === 'string' && /^\d+$/.test(updatedLastMessageAt)) {
+            const n = Number(updatedLastMessageAt)
+            lastMessageTime = n < 1e12 ? n * 1000 : n
           } else {
-            lastMessageTime = new Date(updatedTicket.lastMessageAt).getTime()
+            lastMessageTime = new Date(updatedLastMessageAt).getTime()
           }
 
-          // Se ainda for NaN, não considerar como nova mensagem
-          if (isNaN(lastMessageTime)) {
+          if (!Number.isFinite(lastMessageTime)) {
             console.log('❌ [SOCKET] lastMessageAt inválido - não vai para o topo')
             return false
           }
 
           const timeDiff = Math.abs(now - lastMessageTime)
+          const recentWindowMs = 20000
           console.log('🔍 [SOCKET] Verificando nova mensagem:', {
             now,
-            lastMessageAt: updatedTicket.lastMessageAt,
+            lastMessageAt: updatedLastMessageAt,
             lastMessageTime,
             timeDiff,
-            isRecent: timeDiff < 10000,
+            isRecent: timeDiff < recentWindowMs,
             hasLastMessage: !!updatedTicket.lastMessage
           })
-          // Só considerar nova mensagem se for recente (últimos 10 segundos)
-          if (timeDiff < 10000) {
+          // Considerar nova mensagem se for recente (últimos 20 segundos, cobre delay de processamento)
+          if (timeDiff < recentWindowMs) {
             console.log('✅ [SOCKET] Ticket com nova mensagem - vai para o topo')
             return true
           }

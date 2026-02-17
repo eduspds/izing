@@ -17,6 +17,8 @@ type WAMessageFull = proto.IWebMessageInfo & { key: proto.IMessageKey; message?:
 
 function getMessageType(msg: proto.IMessage | undefined): string {
   if (!msg) return "chat";
+  if (msg.buttonsResponseMessage) return "chat";
+  if (msg.listResponseMessage) return "chat";
   if (msg.conversation || msg.extendedTextMessage) return "chat";
   if (msg.imageMessage) return "image";
   if (msg.videoMessage) return "video";
@@ -30,6 +32,19 @@ function getMessageType(msg: proto.IMessage | undefined): string {
 
 function getMessageBody(msg: proto.IMessage | undefined): string {
   if (!msg) return "";
+  // Resposta de botão clicável (message.upsert com selectedButtonId)
+  const btnResp = msg.buttonsResponseMessage;
+  if (btnResp?.selectedButtonId) {
+    return (btnResp.selectedDisplayText && String(btnResp.selectedDisplayText).trim()) || btnResp.selectedButtonId;
+  }
+  // Resposta de lista interativa
+  const listResp = msg.listResponseMessage;
+  if (listResp?.singleSelectReply?.selectedRowId) {
+    return listResp.singleSelectReply.selectedRowId;
+  }
+  if (listResp?.title) {
+    return listResp.title;
+  }
   if (msg.conversation) return msg.conversation;
   if (msg.extendedTextMessage?.text) return msg.extendedTextMessage.text;
   if (msg.imageMessage?.caption) return msg.imageMessage.caption;
@@ -65,6 +80,11 @@ export function buildBaileysMessageAdapter(
     msg?.stickerMessage
   );
 
+  // Nome que o contato usa no WhatsApp (perfil) – vem na mensagem (WebMessageInfo.pushName)
+  const pushNameFromMessage = (waMessage as any)?.pushName
+    ? String((waMessage as any).pushName).trim()
+    : undefined;
+
   const adapter: IBaileysMessageAdapter = {
     id: { id, _serialized: `${fromMe}_${remoteJid}_${id}` },
     from: fromMe ? remoteJid : participant,
@@ -83,11 +103,13 @@ export function buildBaileysMessageAdapter(
         const onWa = await sock.onWhatsApp(jid);
         const contact = Array.isArray(onWa) ? onWa[0] : undefined;
         const profilePic = await sock.profilePictureUrl(jid).catch(() => undefined);
-        const name = (contact as any)?.name ?? jidToNumber(jid);
+        const contactName = (contact as any)?.name ?? (contact as any)?.notify;
+        const name =
+          pushNameFromMessage || contactName || jidToNumber(jid);
         return {
           id: { user: jidToNumber(jid), _serialized: jid },
           name,
-          pushname: name,
+          pushname: pushNameFromMessage || contactName || name,
           shortName: name,
           isUser: true,
           isWAContact: true,
@@ -95,11 +117,12 @@ export function buildBaileysMessageAdapter(
           getProfilePicUrl: async () => profilePic ?? undefined
         };
       } catch {
+        const fallbackName = pushNameFromMessage || jidToNumber(jid);
         return {
           id: { user: jidToNumber(jid), _serialized: jid },
-          name: jidToNumber(jid),
-          pushname: jidToNumber(jid),
-          shortName: jidToNumber(jid),
+          name: fallbackName,
+          pushname: fallbackName,
+          shortName: fallbackName,
           isUser: true,
           isWAContact: true,
           isGroup: remoteJid?.endsWith("@g.us") ?? false,

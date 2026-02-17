@@ -12,7 +12,7 @@ const VerifyMessage = async (
   const quotedMsg = await VerifyQuotedMessage(msg);
 
   const messageData = {
-    messageId: msg.id.id,
+    messageId: String(msg.id?.id ?? msg.id?._serialized ?? ""),
     ticketId: ticket.id,
     contactId: msg.fromMe ? undefined : contact.id,
     body: msg.body,
@@ -21,7 +21,7 @@ const VerifyMessage = async (
     read: msg.fromMe,
     quotedMsgId: quotedMsg?.id,
     timestamp: msg.timestamp,
-    status: "received"
+    status: msg.fromMe ? "sended" : "received"
   };
 
   await ticket.update({

@@ -12,7 +12,7 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
   const { tenantId } = req.user;
 
   const settings = await ListSettingsService(tenantId);
-  const safe = settings.map((s: { key: string; value: string; toJSON: () => object }) => {
+  const safe = (settings ?? []).map((s: { key: string; value: string; toJSON: () => object }) => {
     const json = s.toJSON ? s.toJSON() : { ...s };
     const out = json as { key: string; value: string };
     if (out.key === MAIL_PASS_KEY && out.value) {

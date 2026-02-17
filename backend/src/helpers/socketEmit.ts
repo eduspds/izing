@@ -46,7 +46,11 @@ const emitEvent = ({ tenantId, type, payload }: ObjEvent): void => {
     eventChannel = `${tenantId}:appMessage`;
   }
 
-  logger.debug(`[SOCKET_EMIT] Enviando: ${eventChannel} - Tipo: ${type}`);
+  if (type === "chat:create") {
+    logger.info(`[SOCKET_EMIT] Enviando nova mensagem: ${eventChannel} (tenantId=${tenantId})`);
+  } else {
+    logger.debug(`[SOCKET_EMIT] Enviando: ${eventChannel} - Tipo: ${type}`);
+  }
 
   io.to(tenantId.toString()).emit(eventChannel, {
     type,

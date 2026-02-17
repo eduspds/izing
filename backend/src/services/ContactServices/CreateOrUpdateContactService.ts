@@ -145,7 +145,7 @@ const CreateOrUpdateContactService = async ({
   }
 
   if (contact) {
-    contact.update({
+    const updateData: Record<string, any> = {
       profilePicUrl,
       pushname,
       isUser,
@@ -153,7 +153,15 @@ const CreateOrUpdateContactService = async ({
       telegramId,
       instagramPK,
       messengerId
-    });
+    };
+    // Só sobrescrever o nome com pushname quando o contato ainda não tiver nome definido pelo usuário (ex.: ChatFlow).
+    // Assim o nome informado no fluxo não é perdido quando o cliente retorna.
+    const currentName = String((contact as any).name ?? "").trim();
+    const hasUserProvidedName = currentName.length >= 2 && currentName !== String((contact as any).number ?? "").trim();
+    if (name && name.trim() && !hasUserProvidedName) {
+      updateData.name = name.trim();
+    }
+    contact.update(updateData);
   } else {
     try {
       contact = await Contact.create({
@@ -176,7 +184,7 @@ const CreateOrUpdateContactService = async ({
       if ((error as any).name === "SequelizeUniqueConstraintError") {
         contact = await Contact.findOne({ where: { number, tenantId } });
         if (contact) {
-          await contact.update({
+          const updateData: Record<string, any> = {
             profilePicUrl,
             pushname,
             isUser,
@@ -184,7 +192,11 @@ const CreateOrUpdateContactService = async ({
             telegramId,
             instagramPK,
             messengerId
-          });
+          };
+          const currentName = String((contact as any).name ?? "").trim();
+          const hasUserProvidedName = currentName.length >= 2 && currentName !== String((contact as any).number ?? "").trim();
+          if (name && name.trim() && !hasUserProvidedName) updateData.name = name.trim();
+          await contact.update(updateData);
         }
       } else {
         throw error;

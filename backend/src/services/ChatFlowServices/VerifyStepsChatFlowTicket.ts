@@ -3,6 +3,7 @@ import type { IBaileysMessageAdapter, MessageLikeMinimal } from "../../types/bai
 import socketEmit from "../../helpers/socketEmit";
 import Ticket from "../../models/Ticket";
 import Queue from "../../models/Queue";
+import Contact from "../../models/Contact";
 import CreateMessageSystemService from "../MessageServices/CreateMessageSystemService";
 import CreateLogTicketService from "../TicketServices/CreateLogTicketService";
 import BuildSendMessageService from "./BuildSendMessageService";
@@ -10,6 +11,23 @@ import DefinedUserBotService from "./DefinedUserBotService";
 import IsContactTest from "./IsContactTest";
 import SendFarewellMessage from "../../helpers/SendFarewellMessage";
 import User from "../../models/User";
+import UpdateContactService from "../ContactServices/UpdateContactService";
+import { validateInput, type ValidationType, type ValidateInputOptions } from "./ChatFlowDataValidation";
+import { logger } from "../../utils/logger";
+
+/** Monta payload do ticket com contact buscado do banco (garante nome atualizado no frontend). */
+async function buildTicketPayloadForSocket(ticket: Ticket): Promise<Record<string, unknown>> {
+  const refreshed = await ticket.reload();
+  const ticketPlain =
+    typeof (refreshed as any).toJSON === "function"
+      ? (refreshed as any).toJSON()
+      : { ...(refreshed as any).dataValues };
+  const contact = await Contact.findByPk(ticket.contactId, {
+    attributes: ["id", "name", "number", "email", "profilePicUrl", "birthDate", "pushname", "isBlocked"]
+  });
+  const contactPlain = contact && typeof (contact as any).toJSON === "function" ? (contact as any).toJSON() : contact;
+  return { ...ticketPlain, contact: contactPlain ?? null } as Record<string, unknown>;
+}
 
 const isNextSteps = async (
   ticket: Ticket,
@@ -419,16 +437,207 @@ const VerifyStepsChatFlowTicket = async (
         celularTeste = chatFlow.celularTeste.replace(/\s/g, ""); // retirar espaços
       }
 
-      const step = chatFlow.flow.nodeList.find(
+      const nodeList = chatFlow.flow?.nodeList;
+      if (!Array.isArray(nodeList) || nodeList.length === 0) {
+        return;
+      }
+
+      const step = nodeList.find(
         (node: any) => node.id === ticket.stepChatFlow
       );
 
-      const flowConfig = chatFlow.flow.nodeList.find(
+      if (!step) {
+        return;
+      }
+
+      const flowConfig = nodeList.find(
         (node: any) => node.type === "configurations"
       );
 
+      const conditions = step.conditions;
+      if (!Array.isArray(conditions)) {
+        return;
+      }
+
+      // Etapa "Aguardar Entrada de Dados": validar mensagem, persistir no contato e avançar
+      if (step.waitForData && !ticket.isCreated) {
+        const targetField = step.targetField || "name";
+        const contactForStep = await Contact.findOne({
+          where: { id: ticket.contactId, tenantId: ticket.tenantId },
+          include: ["extraInfo"],
+          attributes: ["id", "name", "number", "email", "birthDate"]
+        });
+        if (!contactForStep) {
+          logger.warn(`[VerifyStepsChatFlowTicket] Contato não encontrado para entrada de dados | ticketId=${ticket.id}`);
+          return;
+        }
+        const existingName = String((contactForStep as any).name ?? "").trim();
+        const existingEmail = String((contactForStep as any).email ?? "").trim();
+        const existingBirthDate = String((contactForStep as any).birthDate ?? "").trim();
+
+        // Etapa "Data de nascimento" (campo fixo): usar uma única vez – se o contato já tem data, pular
+        const isBirthDateStep =
+          targetField === "birthDate" ||
+          ((targetField === "Data de Nascimento" || targetField === "Data de nascimento") &&
+            (step.validationType || "text") === "date");
+        if (isBirthDateStep && existingBirthDate.length >= 8) {
+          const dataCondition = conditions.find((c: any) => c.action === 0 && c.nextStepId);
+          if (dataCondition?.nextStepId) {
+            await ticket.update({
+              stepChatFlow: dataCondition.nextStepId,
+              botRetries: 0,
+              lastInteractionBot: new Date()
+            });
+            await ticket.reload({ include: ["contact"] });
+            const nextStep = nodeList.find((n: any) => n.id === dataCondition.nextStepId);
+            if (nextStep?.interactions?.length) {
+              await Promise.all(
+                nextStep.interactions.map((interaction: any) =>
+                  BuildSendMessageService({ msg: interaction, tenantId: ticket.tenantId, ticket })
+                )
+              );
+            }
+            await ticket.reload();
+            socketEmit({ tenantId: ticket.tenantId, type: "ticket:update", payload: ticket });
+          }
+          return;
+        }
+
+        // Etapa "Nome": usar uma única vez – se o contato já tem nome definido, pular e ir para o próximo passo
+        if (targetField === "name" && existingName.length >= 2) {
+          const dataCondition = conditions.find((c: any) => c.action === 0 && c.nextStepId);
+          if (dataCondition?.nextStepId) {
+            await ticket.update({
+              stepChatFlow: dataCondition.nextStepId,
+              botRetries: 0,
+              lastInteractionBot: new Date()
+            });
+            await ticket.reload({ include: ["contact"] });
+            const nextStep = nodeList.find((n: any) => n.id === dataCondition.nextStepId);
+            if (nextStep?.interactions?.length) {
+              await Promise.all(
+                nextStep.interactions.map((interaction: any) =>
+                  BuildSendMessageService({ msg: interaction, tenantId: ticket.tenantId, ticket })
+                )
+              );
+            }
+            await ticket.reload();
+            socketEmit({ tenantId: ticket.tenantId, type: "ticket:update", payload: ticket });
+          }
+          return;
+        }
+
+        const validationType = (step.validationType || "text") as ValidationType;
+        const validationOptions: ValidateInputOptions = { targetField };
+        const result = validateInput(String(msg.body ?? "").trim(), validationType, validationOptions);
+        if (!result.valid) {
+          const errorMessage =
+            flowConfig?.configurations?.notOptionsSelectMessage?.message ||
+            "Não entendi. Por favor, envie um valor válido.";
+          await CreateMessageSystemService({
+            msg: {
+              body: result.error || errorMessage,
+              fromMe: true,
+              read: true,
+              sendType: "bot",
+              ticketId: ticket.id,
+              contactId: ticket.contactId,
+              tenantId: ticket.tenantId
+            },
+            tenantId: ticket.tenantId,
+            ticket,
+            sendType: "bot",
+            status: "pending"
+          });
+          await ticket.update({
+            botRetries: (ticket.botRetries || 0) + 1,
+            lastInteractionBot: new Date()
+          });
+          socketEmit({ tenantId: ticket.tenantId, type: "ticket:update", payload: await ticket.reload() });
+          return;
+        }
+        const value = result.value!;
+        const currentNumber = String((contactForStep as any).number ?? "").trim();
+        const currentExtra = (contactForStep as any).extraInfo ?? [];
+        let extraInfo: { id?: number; name: string; value: string }[] = currentExtra.map((e: any) => ({
+          id: e.id,
+          name: e.name,
+          value: e.value
+        }));
+
+        // Preservar nome/e-mail ao atualizar só extraInfo: nunca sobrescrever com vazio (evita nome sumir na etapa seguinte)
+        const nameToKeep = (existingName || (ticket as any).contact?.name) ?? "";
+        const emailToKeep = (existingEmail || (ticket as any).contact?.email) ?? "";
+
+        // Data de nascimento (campo fixo) vai para contact.birthDate; outros customizados vão para extraInfo
+        const isDateStep = (step.validationType || "text") === "date";
+        const effectiveField =
+          targetField === "name" && isDateStep
+            ? "Data de nascimento"
+            : targetField === "email" && isDateStep
+              ? "Data de nascimento"
+              : targetField;
+
+        // Atualizar apenas o campo que está sendo preenchido, para não sobrescrever nome/email com vazio
+        if (effectiveField === "name") {
+          await UpdateContactService({
+            contactId: String(ticket.contactId),
+            tenantId: ticket.tenantId,
+            contactData: { name: value }
+          });
+        } else if (effectiveField === "email") {
+          await UpdateContactService({
+            contactId: String(ticket.contactId),
+            tenantId: ticket.tenantId,
+            contactData: { email: value }
+          });
+        } else if (isBirthDateStep) {
+          await UpdateContactService({
+            contactId: String(ticket.contactId),
+            tenantId: ticket.tenantId,
+            contactData: { birthDate: value }
+          });
+        } else {
+          const idx = extraInfo.findIndex((e: any) => e.name === effectiveField);
+          if (idx >= 0) extraInfo[idx] = { ...extraInfo[idx], value };
+          else extraInfo.push({ name: effectiveField, value });
+          const contactData: any = { number: currentNumber, extraInfo };
+          if (nameToKeep.length > 0) contactData.name = nameToKeep;
+          if (emailToKeep.length > 0) contactData.email = emailToKeep;
+          await UpdateContactService({
+            contactId: String(ticket.contactId),
+            tenantId: ticket.tenantId,
+            contactData
+          });
+        }
+        const dataCondition = conditions.find((c: any) => c.action === 0 && c.nextStepId);
+        if (!dataCondition?.nextStepId) {
+          logger.warn(`[VerifyStepsChatFlowTicket] Etapa de entrada de dados sem próximo passo | stepId=${step.id}`);
+          const payload = await buildTicketPayloadForSocket(ticket);
+          socketEmit({ tenantId: ticket.tenantId, type: "ticket:update", payload });
+          return;
+        }
+        await ticket.update({
+          stepChatFlow: dataCondition.nextStepId,
+          botRetries: 0,
+          lastInteractionBot: new Date()
+        });
+        await ticket.reload();
+        const nextStep = nodeList.find((n: any) => n.id === dataCondition.nextStepId);
+        if (nextStep?.interactions?.length) {
+          await Promise.all(
+            nextStep.interactions.map((interaction: any) =>
+              BuildSendMessageService({ msg: interaction, tenantId: ticket.tenantId, ticket })
+            )
+          );
+        }
+        const payload = await buildTicketPayloadForSocket(ticket);
+        socketEmit({ tenantId: ticket.tenantId, type: "ticket:update", payload });
+        return;
+      }
+
       // verificar condição com a ação do step
-      const stepCondition = step.conditions.find((conditions: any) => {
+      const stepCondition = conditions.find((conditions: any) => {
         if (conditions.type === "US") return true;
         const newConditions = conditions.condition.map((c: any) =>
           String(c).toLowerCase().trim()
@@ -592,7 +801,7 @@ const VerifyStepsChatFlowTicket = async (
         )
           return;
 
-        // se ticket tiver sido criado, ingnorar na primeria passagem
+        // se ticket tiver sido criado, ignorar na primeira passagem
         if (!ticket.isCreated) {
           if (await isRetriesLimit(ticket, flowConfig)) return;
 
@@ -618,7 +827,10 @@ const VerifyStepsChatFlowTicket = async (
             lastInteractionBot: new Date()
           });
         }
-        if (step.interactions && step.interactions.length > 0) {
+        // Evitar reenviar o primeiro passo quando o ticket acabou de ser criado (CheckChatBotFlowWelcome já enviou)
+        const ticketCreatedAtMs = ticket.createdAt ? new Date(ticket.createdAt).getTime() : 0;
+        const justCreated = ticketCreatedAtMs && Date.now() - ticketCreatedAtMs < 6000;
+        if (step.interactions && step.interactions.length > 0 && !justCreated) {
           await Promise.all(
             step.interactions.map((interaction: any) =>
               BuildSendMessageService({

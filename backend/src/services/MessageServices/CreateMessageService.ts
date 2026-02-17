@@ -1,6 +1,7 @@
 import Message from "../../models/Message";
 import Ticket from "../../models/Ticket";
 import socketEmit from "../../helpers/socketEmit";
+import { logger } from "../../utils/logger";
 
 interface MessageData {
   id?: string;
@@ -23,10 +24,16 @@ const CreateMessageService = async ({
   messageData,
   tenantId
 }: Request): Promise<Message> => {
+  const messageId = String(messageData.messageId ?? "").trim();
+  if (!messageId) {
+    logger.warn("[CreateMessageService] messageId vazio, ignorando criação");
+    throw new Error("ERR_MESSAGE_ID_REQUIRED");
+  }
+  const normalizedMessageData = { ...messageData, messageId };
+
   // Buscar ticket para verificar se está em modo sigiloso
-  // Recarregar ticket para garantir dados atualizados
   const ticket = await Ticket.findOne({
-    where: { id: messageData.ticketId, tenantId }
+    where: { id: normalizedMessageData.ticketId, tenantId }
   });
 
   if (!ticket) {
@@ -45,24 +52,24 @@ const CreateMessageService = async ({
   }
 
   const msg = await Message.findOne({
-    where: { messageId: messageData.messageId, tenantId }
+    where: { messageId: normalizedMessageData.messageId, tenantId }
   });
   if (!msg) {
     await Message.create({
-      ...messageData,
+      ...normalizedMessageData,
       tenantId,
       isConfidential,
       confidentialUserId
     });
   } else {
     await msg.update({
-      ...messageData,
+      ...normalizedMessageData,
       isConfidential,
       confidentialUserId
     });
   }
   const message = await Message.findOne({
-    where: { messageId: messageData.messageId, tenantId },
+    where: { messageId: normalizedMessageData.messageId, tenantId },
     include: [
       "contact",
       {
@@ -85,8 +92,20 @@ const CreateMessageService = async ({
   }
 
   // Forçar serialização para chamar os getters (mediaUrl)
-  const serializedMessage = message.toJSON();
+  const serializedMessage = message.toJSON() as any;
+  // Garantir que o frontend sempre receba o ticket (evita payload sem ticket e mensagem não exibida)
+  if (!serializedMessage.ticket && message.ticketId) {
+    const ticketForPayload = await Ticket.findOne({
+      where: { id: message.ticketId, tenantId },
+      include: ["contact"]
+    });
+    if (ticketForPayload) serializedMessage.ticket = ticketForPayload.toJSON();
+  }
 
+  const fromMe = Boolean(serializedMessage.fromMe);
+  logger.info(
+    `[CreateMessageService] Emitindo chat:create | ticketId=${normalizedMessageData.ticketId} messageId=${normalizedMessageData.messageId} fromMe=${fromMe} tenantId=${tenantId} ts=${Date.now()}`
+  );
   socketEmit({
     tenantId,
     type: "chat:create",

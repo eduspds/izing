@@ -25,6 +25,8 @@ interface Response {
   id: number;
   email: string;
   accountStatus: string;
+  emailSent: boolean;
+  inviteLink: string;
   message: string;
 }
 
