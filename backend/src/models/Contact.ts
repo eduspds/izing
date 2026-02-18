@@ -39,6 +39,12 @@ class Contact extends Model<Contact> {
   @Column
   number: string;
 
+  /** Backup do número original (ex.: LID) quando o usuário corrige para o padrão; evita perda do identificador. */
+  @AllowNull(true)
+  @Default(null)
+  @Column
+  numberBackup: string;
+
   @AllowNull(true)
   @Default(null)
   @Column

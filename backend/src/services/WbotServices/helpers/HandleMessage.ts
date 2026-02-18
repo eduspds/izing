@@ -1,5 +1,6 @@
 import type { IBaileysMessageAdapter, IContactAdapter } from "../../../types/baileysAdapter";
 import type { BaileysSession } from "../../../types/baileysAdapter";
+import { sanitizeJidToPhone } from "../../../types/baileysAdapter";
 import Contact from "../../../models/Contact";
 import { logger } from "../../../utils/logger";
 import FindOrCreateTicketService from "../../TicketServices/FindOrCreateTicketService";
@@ -60,7 +61,7 @@ const HandleMessage = async (
       logger.info(`[HandleMessage] getChat() ok: msgId=${getMessageId(msg.id)}`);
 
       const remoteNumberRaw = (msg.fromMe ? msg.to : msg.from) ?? "";
-      const remoteNumber = remoteNumberRaw.replace(/@[s]\.whatsapp\.net$/i, "").replace(/@[cg]\.us$/i, "").replace(/@lid$/i, "") ?? "";
+      const remoteNumber = sanitizeJidToPhone(remoteNumberRaw);
       const sessionNumber = (whatsapp as any).number ?? "";
       if (sessionNumber && remoteNumber) {
         const norm = (n: string) => (n || "").replace(/\D/g, "");
@@ -83,11 +84,10 @@ const HandleMessage = async (
         let groupContact: Contact | undefined;
 
         const buildContactFallback = (): IContactAdapter => {
-          const contactNumber = msg.fromMe
-            ? (msg.to ?? "").replace(/@[s]\.whatsapp\.net$/, "").replace(/@[cg]\.us$/, "")
-            : (msg.from ?? "").replace(/@[s]\.whatsapp\.net$/, "").replace(/@[cg]\.us$/, "");
+          const rawJid = msg.fromMe ? (msg.to ?? "") : (msg.from ?? "");
+          const contactNumber = sanitizeJidToPhone(rawJid);
           return {
-            id: { user: contactNumber, _serialized: msg.fromMe ? (msg.to ?? "") : (msg.from ?? "") },
+            id: { user: contactNumber, _serialized: rawJid },
             name: chat.name || contactNumber,
             pushname: chat.name || contactNumber,
             shortName: chat.name || contactNumber,
@@ -132,7 +132,7 @@ const HandleMessage = async (
             const contact = Array.isArray(onWa) ? onWa[0] : undefined;
             const groupContactAdapter: IContactAdapter = contact
               ? {
-                  id: { user: (jid || "").split("@")[0], _serialized: jid },
+                  id: { user: sanitizeJidToPhone(jid || ""), _serialized: jid },
                   name: (contact as any).name ?? jid,
                   pushname: (contact as any).name ?? jid,
                   shortName: (contact as any).name ?? jid,

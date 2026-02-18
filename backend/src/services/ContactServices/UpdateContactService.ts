@@ -41,7 +41,7 @@ const UpdateContactService = async ({
 
   const contact = await Contact.findOne({
     where: { id: contactId, tenantId },
-    attributes: ["id", "name", "number", "email", "birthDate", "profilePicUrl"],
+    attributes: ["id", "name", "number", "numberBackup", "email", "birthDate", "profilePicUrl"],
     include: [
       "extraInfo",
       "tags",
@@ -97,13 +97,20 @@ const UpdateContactService = async ({
 
   const updatePayload: Record<string, unknown> = {};
   if (name !== undefined) updatePayload.name = name;
-  if (number !== undefined) updatePayload.number = number;
+  if (number !== undefined) {
+    const currentNumber = String((contact as any).number ?? "").replace(/\D/g, "");
+    const looksLikeLid = currentNumber.length >= 12 && currentNumber.length <= 15 && /^1\d+$/.test(currentNumber);
+    if (looksLikeLid && !(contact as any).numberBackup) {
+      updatePayload.numberBackup = (contact as any).number;
+    }
+    updatePayload.number = number;
+  }
   if (email !== undefined) updatePayload.email = email;
   if (birthDate !== undefined) updatePayload.birthDate = birthDate;
   await contact.update(updatePayload);
 
   await contact.reload({
-    attributes: ["id", "name", "number", "email", "birthDate", "profilePicUrl"],
+    attributes: ["id", "name", "number", "numberBackup", "email", "birthDate", "profilePicUrl"],
     include: [
       "extraInfo",
       "tags",

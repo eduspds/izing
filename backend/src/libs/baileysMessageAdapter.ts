@@ -4,14 +4,13 @@
  */
 
 import type { WASocket, proto } from "@whiskeysockets/baileys";
-import { downloadMediaMessage } from "@whiskeysockets/baileys";
 import type {
   IBaileysMessageAdapter,
   IContactAdapter,
   IChatAdapter,
   IMediaData
 } from "../types/baileysAdapter";
-import { jidToNumber } from "../types/baileysAdapter";
+import { jidToNumber, sanitizeJidToPhone } from "../types/baileysAdapter";
 
 type WAMessageFull = proto.IWebMessageInfo & { key: proto.IMessageKey; message?: proto.IMessage };
 
@@ -59,6 +58,28 @@ function hasQuotedMsg(msg: proto.IMessage | undefined): boolean {
   return !!(ext?.quotedMessage);
 }
 
+/** Prefer JID em formato de número (@s.whatsapp.net) sobre LID quando a key trouxer alternativo (evita salvar LID em vez do número real). */
+function preferPhoneJid(primary: string, alt: string | undefined | null): string {
+  if (alt && typeof alt === "string" && alt.endsWith("@s.whatsapp.net")) return alt;
+  return primary;
+}
+
+/** Indica se o JID é LID (identificador interno do WhatsApp) em vez de número (PN). */
+function isLidJid(jid: string): boolean {
+  return typeof jid === "string" && jid.endsWith("@lid");
+}
+
+/**
+ * Tenta obter o JID do número real (PN) a partir de um JID LID.
+ * Só existe no Baileys 7.x (signalRepository.lidMapping.getPNForLID). Em 6.6 retorna undefined.
+ */
+function getPnForLid(sock: WASocket, lidJid: string): string | undefined {
+  const repo = (sock as any).signalRepository;
+  const mapping = repo?.lidMapping;
+  if (typeof mapping?.getPNForLID !== "function") return undefined;
+  return mapping.getPNForLID(lidJid);
+}
+
 export function buildBaileysMessageAdapter(
   waMessage: WAMessageFull,
   sock: WASocket,
@@ -69,6 +90,10 @@ export function buildBaileysMessageAdapter(
   const remoteJid = key.remoteJid!;
   const fromMe = key.fromMe ?? false;
   const participant = key.participant ?? remoteJid;
+  const remoteJidAlt = (key as any).remoteJidAlt as string | undefined;
+  const participantAlt = (key as any).participantAlt as string | undefined;
+  const effectiveRemoteJid = preferPhoneJid(remoteJid, remoteJidAlt);
+  const effectiveParticipant = preferPhoneJid(participant, participantAlt);
   const id = key.id!;
   const type = getMessageType(msg);
   const body = getMessageBody(msg);
@@ -87,8 +112,8 @@ export function buildBaileysMessageAdapter(
 
   const adapter: IBaileysMessageAdapter = {
     id: { id, _serialized: `${fromMe}_${remoteJid}_${id}` },
-    from: fromMe ? remoteJid : participant,
-    to: fromMe ? remoteJid : undefined,
+    from: fromMe ? remoteJid : effectiveParticipant,
+    to: fromMe ? effectiveRemoteJid : undefined,
     body,
     type,
     fromMe,
@@ -98,16 +123,22 @@ export function buildBaileysMessageAdapter(
     timestamp: Number(waMessage.messageTimestamp) || Math.floor(Date.now() / 1000),
 
     getContact: async (): Promise<IContactAdapter> => {
-      const jid = fromMe ? remoteJid : participant;
+      let jid = fromMe ? effectiveRemoteJid : effectiveParticipant;
+      // Se o JID for LID e o Baileys expuser lidMapping (v7), usar o número real para o atendente ver o PN
+      if (isLidJid(jid)) {
+        const pnJid = getPnForLid(sock, jid);
+        if (pnJid) jid = pnJid;
+      }
       try {
         const onWa = await sock.onWhatsApp(jid);
         const contact = Array.isArray(onWa) ? onWa[0] : undefined;
         const profilePic = await sock.profilePictureUrl(jid).catch(() => undefined);
         const contactName = (contact as any)?.name ?? (contact as any)?.notify;
+        const phoneDigits = sanitizeJidToPhone(jid);
         const name =
-          pushNameFromMessage || contactName || jidToNumber(jid);
+          pushNameFromMessage || contactName || phoneDigits || jidToNumber(jid);
         return {
-          id: { user: jidToNumber(jid), _serialized: jid },
+          id: { user: phoneDigits, _serialized: jid },
           name,
           pushname: pushNameFromMessage || contactName || name,
           shortName: name,
@@ -117,9 +148,10 @@ export function buildBaileysMessageAdapter(
           getProfilePicUrl: async () => profilePic ?? undefined
         };
       } catch {
-        const fallbackName = pushNameFromMessage || jidToNumber(jid);
+        const phoneDigits = sanitizeJidToPhone(jid);
+        const fallbackName = pushNameFromMessage || phoneDigits || jidToNumber(jid);
         return {
-          id: { user: jidToNumber(jid), _serialized: jid },
+          id: { user: phoneDigits, _serialized: jid },
           name: fallbackName,
           pushname: fallbackName,
           shortName: fallbackName,
@@ -177,6 +209,7 @@ export function buildBaileysMessageAdapter(
     downloadMedia: async (): Promise<IMediaData | undefined> => {
       if (!hasMedia) return undefined;
       try {
+        const { downloadMediaMessage } = await import("@whiskeysockets/baileys");
         const stream = await downloadMediaMessage(waMessage, "buffer", {}, undefined);
         const buffer = Buffer.isBuffer(stream) ? stream : await bufferFromStream(stream);
         let mimetype = "application/octet-stream";

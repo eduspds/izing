@@ -67,7 +67,7 @@
               @input="setCampoAlvo"
             />
             <q-banner
-              v-if="node.waitForData && (campoAlvoSelect === 'name' || campoAlvoSelect === 'email' || campoAlvoSelect === 'birthDate')"
+              v-if="node.waitForData && (campoAlvoSelect === 'name' || campoAlvoSelect === 'email' || campoAlvoSelect === 'number' || campoAlvoSelect === 'birthDate')"
               class="bg-info text-white q-mb-sm rounded-borders"
               dense
             >
@@ -830,6 +830,7 @@ export default {
       return [
         { label: 'Nome', value: 'name' },
         { label: 'E-mail', value: 'email' },
+        { label: 'Número (telefone)', value: 'number' },
         { label: 'Data de Nascimento', value: 'birthDate' },
         { label: 'Campo personalizado', value: '__custom__' }
       ]
@@ -844,12 +845,13 @@ export default {
       ]
       if (campo === 'name') return [{ label: 'Texto livre', value: 'text' }]
       if (campo === 'email') return [{ label: 'E-mail', value: 'email' }]
+      if (campo === 'number') return [{ label: 'Número', value: 'number' }, { label: 'Texto livre', value: 'text' }]
       if (campo === 'birthDate') return [{ label: 'Data (DD/MM ou DD/MM/AAAA)', value: 'date' }]
       return todas
     },
     campoAlvoSelect () {
       if (!this.node || !this.node.targetField) return 'name'
-      if (this.node.targetField === 'name' || this.node.targetField === 'email') return this.node.targetField
+      if (this.node.targetField === 'name' || this.node.targetField === 'email' || this.node.targetField === 'number') return this.node.targetField
       if (this.node.targetField === 'birthDate' || this.node.targetField === 'Data de Nascimento' || this.node.targetField === 'Data de nascimento') return 'birthDate'
       return '__custom__'
     },
@@ -858,6 +860,7 @@ export default {
       const campo = this.campoAlvoSelect
       if (campo === 'name' && vt !== 'text') return 'text'
       if (campo === 'email' && vt !== 'email') return 'email'
+      if (campo === 'number' && vt !== 'number' && vt !== 'text') return 'number'
       if (campo === 'birthDate' && vt !== 'date') return 'date'
       return vt
     }
@@ -887,6 +890,7 @@ export default {
       const vt = this.node.validationType || 'text'
       if (newVal === 'name' && vt !== 'text') Vue.set(this.node, 'validationType', 'text')
       if (newVal === 'email' && vt !== 'email') Vue.set(this.node, 'validationType', 'email')
+      if (newVal === 'number' && vt !== 'number' && vt !== 'text') Vue.set(this.node, 'validationType', 'number')
       if (newVal === 'birthDate' && vt !== 'date') Vue.set(this.node, 'validationType', 'date')
     }
   },
@@ -905,10 +909,13 @@ export default {
       } else if (val === 'birthDate') {
         Vue.set(this.node, 'targetField', 'birthDate')
         Vue.set(this.node, 'validationType', 'date')
+      } else if (val === 'number') {
+        Vue.set(this.node, 'targetField', 'number')
+        Vue.set(this.node, 'validationType', 'number')
       } else {
         const current = this.node.targetField
-        const isBuiltIn = current === 'name' || current === 'email' || current === 'birthDate'
-        const isCustomLabel = current && current !== 'name' && current !== 'email' && current !== 'birthDate' &&
+        const isBuiltIn = current === 'name' || current === 'email' || current === 'number' || current === 'birthDate'
+        const isCustomLabel = current && current !== 'name' && current !== 'email' && current !== 'number' && current !== 'birthDate' &&
           current !== 'Data de Nascimento' && current !== 'Data de nascimento'
         Vue.set(this.node, 'targetField', isBuiltIn ? 'Outro campo' : (isCustomLabel ? current : 'Outro campo'))
         if (isBuiltIn) Vue.set(this.node, 'validationType', 'text')

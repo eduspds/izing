@@ -1,13 +1,18 @@
+import { Op } from "sequelize";
 import socketEmit from "../../helpers/socketEmit";
 import Contact from "../../models/Contact";
-import { 
+import { sanitizeJidToPhone } from "../../types/baileysAdapter";
+import {
   normalizeForComparison,
-  findMostSimilarNumber, 
-  isValidPhoneNumber as isValidPhoneNumberLegacy
+  findMostSimilarNumber,
+  isValidPhoneNumber as isValidPhoneNumberLegacy,
+  generateNumberVariations,
+  normalizeToBrazilianStorage
 } from "../../utils/phoneNumberSimilarity";
 import { normalizePhoneNumber } from "../../utils/phoneNumberNormalizer";
 import { isPossiblePhoneNumber } from "../../utils/phoneValidator";
 import Ticket from "../../models/Ticket";
+import { logger } from "../../utils/logger";
 
 interface ExtraInfo {
   name: string;
@@ -33,7 +38,7 @@ interface Request {
 
 const CreateOrUpdateContactService = async ({
   name,
-  number: rawNumber,
+  number: rawNumberInput,
   profilePicUrl,
   isGroup,
   tenantId,
@@ -47,31 +52,65 @@ const CreateOrUpdateContactService = async ({
   extraInfo = [],
   origem = "whatsapp"
 }: Request): Promise<Contact> => {
+  // Nunca salvar JID bruto no campo de telefone: extrair apenas dígitos (remove @s.whatsapp.net, :1, :2, etc.)
+  const rawNumber =
+    rawNumberInput && /[@:]/.test(rawNumberInput)
+      ? sanitizeJidToPhone(rawNumberInput)
+      : (rawNumberInput || "").replace(/\D/g, "").trim() || rawNumberInput || "";
+
   // Validação prévia para números não-grupo usando libphonenumber-js
+  let numberOverride: string | null = null;
   if (!isGroup) {
     // Tenta validar sem país padrão (para números internacionais)
     // Se falhar, tenta com BR como padrão (para números brasileiros)
     const isValid = isPossiblePhoneNumber(rawNumber) ||
                     isPossiblePhoneNumber(rawNumber, "BR" as any) ||
                     isValidPhoneNumberLegacy(rawNumber); // Fallback para compatibilidade
-    
+
     if (!isValid) {
-      throw new Error(
-        `Número de telefone inválido: ${rawNumber}. Verifique se o número está completo e correto.`
-      );
+      // Para mensagens do WhatsApp: não descartar contato por validação estrita (ex.: formato @lid, internacional).
+      // Aceita sequência de 10 a 15 dígitos para que a mensagem não se perca.
+      if (origem === "whatsapp") {
+        const digits = (rawNumber || "").replace(/\D/g, "");
+        if (digits.length >= 10 && digits.length <= 15 && /^\d+$/.test(digits)) {
+          logger.warn(
+            `[CreateOrUpdateContactService] Número não passou na validação estrita; aceito como possível WhatsApp (10-15 dígitos): ${rawNumber}`
+          );
+          numberOverride = digits;
+        }
+      }
+      if (!numberOverride) {
+        throw new Error(
+          `Número de telefone inválido: ${rawNumber}. Verifique se o número está completo e correto.`
+        );
+      }
     }
   }
 
-  // Normaliza o número para comparação
+  // Normaliza o número para comparação/busca
   const number = isGroup
     ? String(rawNumber)
-    : normalizeForComparison(rawNumber);
+    : (numberOverride ?? normalizeForComparison(rawNumber));
+
+  // Padrão de armazenamento: campo number contém apenas dígitos (DDI + DDD + número)
+  const numberToStore = isGroup
+    ? number
+    : (() => {
+        const normalized =
+          number.startsWith("55") && number.length >= 12
+            ? normalizeToBrazilianStorage(number)
+            : number;
+        return normalized.replace(/\D/g, "") || normalized;
+      })();
 
   let contact: Contact | null = null;
 
   if (origem === "whatsapp") {
-    // Primeiro, tenta encontrar o contato exato
-    contact = await Contact.findOne({ where: { number, tenantId } });
+    const findWhere =
+      !isGroup && number.startsWith("55")
+        ? { tenantId, number: { [Op.in]: generateNumberVariations(number) } }
+        : { number, tenantId };
+    contact = await Contact.findOne({ where: findWhere });
 
     // Se não encontrou, busca por similaridade
     if (!contact) {
@@ -154,8 +193,9 @@ const CreateOrUpdateContactService = async ({
       instagramPK,
       messengerId
     };
-    // Só sobrescrever o nome com pushname quando o contato ainda não tiver nome definido pelo usuário (ex.: ChatFlow).
-    // Assim o nome informado no fluxo não é perdido quando o cliente retorna.
+    if (numberToStore && numberToStore !== (contact as any).number) {
+      updateData.number = numberToStore;
+    }
     const currentName = String((contact as any).name ?? "").trim();
     const hasUserProvidedName = currentName.length >= 2 && currentName !== String((contact as any).number ?? "").trim();
     if (name && name.trim() && !hasUserProvidedName) {
@@ -166,7 +206,7 @@ const CreateOrUpdateContactService = async ({
     try {
       contact = await Contact.create({
         name,
-        number,
+        number: numberToStore,
         profilePicUrl,
         email,
         isGroup,
@@ -180,9 +220,12 @@ const CreateOrUpdateContactService = async ({
         messengerId
       });
     } catch (error) {
-      // Se o erro for de unique constraint, buscar o contato que já existe
       if ((error as any).name === "SequelizeUniqueConstraintError") {
-        contact = await Contact.findOne({ where: { number, tenantId } });
+        const findWhere =
+          !isGroup && number.startsWith("55")
+            ? { tenantId, number: { [Op.in]: generateNumberVariations(number) } }
+            : { number, tenantId };
+        contact = await Contact.findOne({ where: findWhere });
         if (contact) {
           const updateData: Record<string, any> = {
             profilePicUrl,
@@ -193,6 +236,7 @@ const CreateOrUpdateContactService = async ({
             instagramPK,
             messengerId
           };
+          if (numberToStore && numberToStore !== (contact as any).number) updateData.number = numberToStore;
           const currentName = String((contact as any).name ?? "").trim();
           const hasUserProvidedName = currentName.length >= 2 && currentName !== String((contact as any).number ?? "").trim();
           if (name && name.trim() && !hasUserProvidedName) updateData.name = name.trim();

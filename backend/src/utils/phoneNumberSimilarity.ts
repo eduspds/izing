@@ -175,8 +175,18 @@ export function normalizeForComparison(number: string): string {
 
   const clean = number.replace(/\D/g, "");
 
-  // Se não tem código do país, adiciona
+  // Não prefixar 55 em números que já têm código de outro país (ex.: 1 = EUA) ou LID.
+  // Evita transformar 1228189351282 (LID/EUA) em 551228189351282. Números BR sem 55 têm 10–11 dígitos.
   if (!clean.startsWith("55")) {
+    if (clean.startsWith("1") && clean.length >= 12 && clean.length <= 15) {
+      return clean; // 1 + 10+ dígitos = EUA/Canadá ou LID: manter como está (não forçar 55)
+    }
+    if (clean.length >= 12 && /^\d+$/.test(clean)) {
+      const knownNotBr = ["351", "34", "33", "49", "39", "44", "52", "54", "57", "58", "593", "595", "598"];
+      const hasOtherCountry = knownNotBr.some(cc => clean.startsWith(cc) && clean.length >= cc.length + 9);
+      if (hasOtherCountry) return clean;
+    }
+
     const with55 = `55${clean}`;
 
     // EXCEÇÃO: Para DDD 11, mantém o 9
@@ -241,6 +251,33 @@ export function generateNumberVariations(number: string): string[] {
   }
 
   return [...new Set(variations)]; // Remove duplicatas
+}
+
+/**
+ * Normaliza número brasileiro para o padrão de ARMAZENAMENTO: 55 + DDD + 9 + número (celular).
+ * Use ao salvar/criar contato para manter consistência (código do país - DDD - dígito 9 - número).
+ * Números de outros países são retornados sem alteração (apenas dígitos).
+ * @param number Número a normalizar (pode ter formatação ou só dígitos)
+ * @returns Número no formato de armazenamento (só dígitos; BR = 13 dígitos com 9)
+ */
+export function normalizeToBrazilianStorage(number: string): string {
+  if (!number || typeof number !== "string") return number;
+  const clean = number.replace(/\D/g, "");
+  if (clean.length < 10) return number;
+
+  // Não alterar números que são claramente de outro país (ex.: 1 = EUA, 12+ dígitos)
+  if (clean.startsWith("1") && clean.length >= 12 && clean.length <= 15) return clean;
+  const knownNotBr = ["351", "34", "33", "49", "39", "44", "52", "54", "57", "58", "593", "595", "598"];
+  if (knownNotBr.some(cc => clean.startsWith(cc) && clean.length >= cc.length + 9)) return clean;
+
+  // Brasil: garantir 55 + DDD + 9 + 8 dígitos = 13 dígitos
+  let br = clean.startsWith("55") ? clean : `55${clean}`;
+  if (br.length === 12) {
+    const ddd = br.substring(2, 4);
+    br = `${br.substring(0, 4)}9${br.substring(4)}`; // insere 9 após DDD
+  }
+  if (br.length === 13 && br.startsWith("55")) return br;
+  return br.length >= 12 && br.startsWith("55") ? br : number;
 }
 
 export default {

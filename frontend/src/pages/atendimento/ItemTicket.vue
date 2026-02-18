@@ -61,7 +61,7 @@
       <q-item-section id="ListItemsTicket">
         <q-item-label class="text-bold"
           lines="1">
-          {{ !ticket.name ? truncateMessage((ticket.contact && ticket.contact.name), 20) : truncateMessage(ticket.name, 20) }}
+          {{ truncateMessage(getTicketDisplayName(ticket), 20) }}
           <q-badge v-if="(ticket.contact && ticket.contact.isBlocked) || ticket.contactIsBlocked" color="negative" label="Bloqueado" class="q-ml-xs" dense />
           <q-icon size="20px"
             :name="`img:${ticket.channel}-logo.png`" />
@@ -222,6 +222,7 @@ import { formatDistance, parseJSON } from 'date-fns'
 import pt from 'date-fns/locale/pt-BR'
 import mixinAtualizarStatusTicket from './mixinAtualizarStatusTicket'
 import { outlinedAccountCircle } from '@quasar/extras/material-icons-outlined'
+import { formatPhoneDisplay } from 'src/utils/formatPhoneDisplay'
 
 export default {
   name: 'ItemTicket',
@@ -276,6 +277,13 @@ export default {
     }
   },
   methods: {
+    getTicketDisplayName (ticket) {
+      const name = ticket.name || (ticket.contact && ticket.contact.name) || ''
+      if (name && /^\d{10,}$/.test(String(name).replace(/\s/g, ''))) {
+        return formatPhoneDisplay(name)
+      }
+      return name
+    },
     getProfilePicUrl (ticket) {
       // Verificar se está no nível raiz (ticket da lista)
       if (ticket.profilePicUrl) {

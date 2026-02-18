@@ -33,10 +33,10 @@
           :validator="$v.contato.number"
           @blur="$v.contato.number.$touch"
           mask="+#############"
-          placeholder="+DDI (DDD) 99999 9999"
+          placeholder="Brasil: +55 (DDD) 9XXXX-XXXX | Outros: +DDI número"
           fill-mask
           unmasked-value
-          hint="Número do celular deverá conter 9 dígitos e ser precedido do DDI E DDD. "
+          hint="Brasil: código do país (55) + DDD + 9 + número. Outros países: +DDI e número completo."
           label="Número"
         />
         <c-input
@@ -47,6 +47,19 @@
           v-model="contato.email"
           label="E-mail"
         />
+        <q-input
+          class="col-6"
+          outlined
+          v-model="contato.birthDate"
+          label="Data de aniversário"
+          type="date"
+          clearable
+          hint="Campo fixo do contato. O ChatFlow de pré-cadastro também preenche aqui."
+        >
+          <template v-slot:prepend>
+            <q-icon name="cake" />
+          </template>
+        </q-input>
       </q-card-section>
       <q-card-section>
         <q-card
@@ -202,6 +215,7 @@ export default {
         name: null,
         number: null,
         email: '',
+        birthDate: null,
         extraInfo: [],
         wallets: []
       },
@@ -212,7 +226,7 @@ export default {
     contato: {
       name: { required, minLength: minLength(3), maxLength: maxLength(50) },
       email: { email },
-      number: { required, minLength: minLength(8) }
+      number: { required, minLength: minLength(10) }
     }
   },
   methods: {
@@ -225,9 +239,8 @@ export default {
           ...data,
           wallets: data.wallets?.map(w => w.id) || []
         }
-        if (data.number.substring(0, 2) === '55') {
-          this.contato.number = data.number.substring(0)
-        }
+        this.contato.number = data.number ? String(data.number).replace(/\D/g, '') : ''
+        this.contato.birthDate = data.birthDate || null
       } catch (error) {
         console.error(error)
         this.$notificarErro('Ocorreu um erro!', error)
@@ -254,9 +267,11 @@ export default {
         })
       }
 
+      const raw = String(this.contato.number || '').replace(/\D/g, '')
       const contato = {
         ...this.contato,
-        number: '' + this.contato.number // inserir o DDI do brasil para consultar o número
+        number: raw.startsWith('55') ? raw : (raw.length >= 10 ? raw : `55${raw}`),
+        birthDate: this.contato.birthDate || null
       }
 
       try {

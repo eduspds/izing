@@ -67,11 +67,30 @@ export function toBaileysJidFromLegacy(legacyJid: string): BaileysJid {
 }
 
 /**
- * Extrai número (ou id de grupo) do JID.
+ * Extrai a parte "usuário" do JID (antes do @).
+ * Pode conter sufixo de dispositivo (ex.: 5575912345678:2).
+ * Use para exibição ou para montar JID; para gravar no banco use sanitizeJidToPhone.
  */
 export function jidToNumber(jid: string): string {
   if (!jid) return "";
   return jid.split("@")[0] || "";
+}
+
+/**
+ * Sanitização de JID para uso no campo de telefone do contato.
+ * Extrai apenas os dígitos que precedem @ ou : (ignora sufixo de dispositivo :1, :2 e domínios @s.whatsapp.net, @g.us, @lid).
+ * Regra de negócio: o campo number no banco deve conter apenas dígitos (DDI + DDD + número).
+ *
+ * @example
+ * sanitizeJidToPhone("5575912345678:2@s.whatsapp.net") // "5575912345678"
+ * sanitizeJidToPhone("120363@g.us") // "120363"
+ * sanitizeJidToPhone("164879499583679@lid") // "164879499583679"
+ */
+export function sanitizeJidToPhone(jid: string): string {
+  if (!jid || typeof jid !== "string") return "";
+  const userPart = jid.split("@")[0] || "";
+  const mainPart = userPart.split(":")[0] || userPart;
+  return mainPart.replace(/\D/g, "");
 }
 
 /**

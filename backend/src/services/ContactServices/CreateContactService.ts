@@ -1,8 +1,9 @@
+import { Op } from "sequelize";
 import AppError from "../../errors/AppError";
 import socketEmit from "../../helpers/socketEmit";
 import Contact from "../../models/Contact";
 import ContactWallet from "../../models/ContactWallet";
-import { normalizeForComparison } from "../../utils/phoneNumberSimilarity";
+import { normalizeForComparison, normalizeToBrazilianStorage, generateNumberVariations } from "../../utils/phoneNumberSimilarity";
 
 interface ExtraInfo {
   name: string;
@@ -20,6 +21,8 @@ interface Request {
   number: string;
   email?: string;
   profilePicUrl?: string;
+  /** Data de aniversário (YYYY-MM-DD). Campo fixo para agenda e automação. */
+  birthDate?: string | null;
   extraInfo?: ExtraInfo[];
   tenantId: string | number;
   wallets?: null | number[] | string[];
@@ -30,16 +33,22 @@ const CreateContactService = async ({
   number,
   email = "",
   profilePicUrl = "",
+  birthDate,
   extraInfo = [],
   tenantId,
   wallets
 }: Request): Promise<Contact> => {
-  // Normaliza o número para comparação
   const normalizedNumber = normalizeForComparison(number);
-  
-  const numberExists = await Contact.findOne({
-    where: { number: normalizedNumber, tenantId }
-  });
+  const numberToStore =
+    normalizedNumber.startsWith("55") && normalizedNumber.length >= 12
+      ? normalizeToBrazilianStorage(normalizedNumber)
+      : normalizedNumber;
+
+  const findWhere =
+    normalizedNumber.startsWith("55")
+      ? { tenantId, number: { [Op.in]: generateNumberVariations(normalizedNumber) } }
+      : { number: numberToStore, tenantId };
+  const numberExists = await Contact.findOne({ where: findWhere });
 
   if (numberExists) {
     throw new AppError("ERR_DUPLICATED_CONTACT");
@@ -48,9 +57,10 @@ const CreateContactService = async ({
   const contact = await Contact.create(
     {
       name,
-      number: normalizedNumber,
+      number: numberToStore,
       email,
       profilePicUrl,
+      birthDate: birthDate || null,
       extraInfo,
       tenantId
     },

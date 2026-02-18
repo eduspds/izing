@@ -23,6 +23,7 @@ import { ImportFileContactsService } from "../services/WbotServices/ImportFileCo
 import Contact from "../models/Contact";
 import FindByNumber from "../services/ContactServices/ContactByNumber";
 import { isPossiblePhoneNumber, normalizePhoneNumberToE164 } from "../utils/phoneValidator";
+import { normalizeToBrazilianStorage } from "../utils/phoneNumberSimilarity";
 import { logger } from "../utils/logger";
 
 type IndexQuery = {
@@ -38,6 +39,8 @@ interface ContactData {
   name: string;
   number: string;
   email?: string;
+  /** Data de aniversário (YYYY-MM-DD). Campo fixo para agenda e automação de parabéns. */
+  birthDate?: string | null;
   extraInfo?: ExtraInfo[];
   wallets?: null | number[] | string[];
 }
@@ -87,16 +90,20 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 
   try {
     const waNumber = await CheckIsValidContact(newContact.number, tenantId);
-    numberToSave = waNumber.user ?? waNumber.jid?.user ?? newContact.number;
+    const fromJid = (waNumber.jid && String(waNumber.jid).split("@")[0]) || newContact.number;
+    numberToSave = (waNumber as any).user ?? fromJid ?? newContact.number;
     profilePicUrl = await GetProfilePicUrl(numberToSave, tenantId);
   } catch (err: any) {
-    // Permite criar contato mesmo sem WhatsApp conectado ou número não encontrado no WhatsApp
     logger.warn(
       `ContactController.store: WhatsApp check failed, creating contact with normalized number | error=${err?.message}`
     );
     const normalized = normalizePhoneNumberToE164(newContact.number, "BR" as any) ||
                        newContact.number.replace(/\D/g, "");
-    numberToSave = normalized.startsWith("+") ? normalized : normalized.startsWith("55") ? normalized : `55${normalized}`;
+    numberToSave = normalized.startsWith("+") ? normalized.slice(1) : normalized.startsWith("55") ? normalized : `55${normalized}`;
+  }
+  const digitsOnly = numberToSave.replace(/\D/g, "");
+  if (digitsOnly.startsWith("55") && digitsOnly.length >= 12) {
+    numberToSave = normalizeToBrazilianStorage(numberToSave);
   }
 
   const contact = await CreateContactService({
@@ -142,7 +149,8 @@ export const update = async (
 
   const schema = Yup.object().shape({
     name: Yup.string(),
-    number: Yup.string()
+    number: Yup.string(),
+    birthDate: Yup.string().nullable()
   });
 
   try {
@@ -151,23 +159,28 @@ export const update = async (
     throw new AppError(err.message);
   }
 
-  // Valida o número de telefone se foi fornecido
   if (contactData.number) {
-    // Remove formatação básica, mas mantém + para números internacionais
-    contactData.number = contactData.number.replace(/\s+/g, "").replace(/-/g, "");
-    
-    // Valida o número de telefone usando libphonenumber-js
+    contactData.number = contactData.number.replace(/\s+/g, "").replace(/-/g, "").replace(/^\+/, "");
     const isPossible = isPossiblePhoneNumber(contactData.number) ||
                        isPossiblePhoneNumber(contactData.number, "BR" as any);
-    
     if (!isPossible) {
       throw new AppError("Número de telefone inválido ou incompleto");
     }
   }
 
-  const waNumber = await CheckIsValidContact(contactData.number, tenantId);
-
-  contactData.number = waNumber.user;
+  if (contactData.number) {
+    try {
+      const waNumber = await CheckIsValidContact(contactData.number, tenantId);
+      const fromJid = waNumber.jid && String(waNumber.jid).split("@")[0];
+      contactData.number = (waNumber as any).user ?? fromJid ?? contactData.number;
+    } catch (err: any) {
+      logger.warn(`ContactController.update: CheckIsValidContact failed, saving number as provided | error=${err?.message}`);
+    }
+    const digitsOnly = contactData.number.replace(/\D/g, "");
+    if (digitsOnly.startsWith("55") && digitsOnly.length >= 12) {
+      contactData.number = normalizeToBrazilianStorage(contactData.number);
+    }
+  }
 
   const { contactId } = req.params;
 

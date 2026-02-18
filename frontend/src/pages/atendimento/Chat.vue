@@ -159,7 +159,7 @@
               v-if="scope.opt.name">
               <q-item-section>
                 <q-item-label> {{ scope.opt.name }}</q-item-label>
-                <q-item-label caption>{{ scope.opt.number }}</q-item-label>
+                <q-item-label caption>{{ formatPhone(scope.opt.number) }}</q-item-label>
               </q-item-section>
             </q-item>
           </template>
@@ -542,7 +542,7 @@
                 v-if="scope.opt.name">
                 <q-item-section>
                   <q-item-label> {{ scope.opt.name }}</q-item-label>
-                  <q-item-label caption>{{ scope.opt.number }}</q-item-label>
+                  <q-item-label caption>{{ formatPhone(scope.opt.number) }}</q-item-label>
                 </q-item-section>
               </q-item>
             </template>
@@ -580,6 +580,7 @@ import ModalEncerrarTicket from 'src/components/ModalEncerrarTicket'
 import { mapGetters } from 'vuex'
 import { addDays, addMonths, endOfMonth, endOfWeek, format, isSameMonth, isToday, isValid, parseISO, startOfMonth, startOfWeek } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { formatPhoneDisplay } from 'src/utils/formatPhoneDisplay'
 
 export default {
   name: 'Chat',
@@ -777,6 +778,7 @@ export default {
     }
   },
   methods: {
+    formatPhone: formatPhoneDisplay,
     prepareCalendarState () {
       this.scheduledMessagesSnapshot = this.scheduledMessages.length
       const dataPadrao = this.getDefaultCalendarDate()

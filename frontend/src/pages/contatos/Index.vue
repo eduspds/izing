@@ -217,6 +217,7 @@ import { CriarTicket, AtualizarStatusTicket } from 'src/service/tickets'
 import { ListarContatos, ImportarArquivoContato, DeletarContato, SyncronizarContatos, ExportarArquivoContato, BloquearContato } from 'src/service/contatos'
 import ContatoModal from './ContatoModal'
 import { mapGetters } from 'vuex'
+import { formatPhoneDisplay } from 'src/utils/formatPhoneDisplay'
 export default {
   name: 'IndexContatos',
   components: { ContatoModal },
@@ -263,10 +264,20 @@ export default {
             if (r.number && r.name == r.number && r.pushname) {
               return r.pushname
             }
+            if (r.number && r.name == r.number) {
+              return formatPhoneDisplay(r.number)
+            }
             return r.name
           }
         },
-        { name: 'number', label: 'WhatsApp', field: 'number', align: 'center', style: 'width: 300px' },
+        {
+          name: 'number',
+          label: 'WhatsApp',
+          field: 'number',
+          align: 'center',
+          style: 'width: 300px',
+          format: (v) => formatPhoneDisplay(v || '')
+        },
         {
           name: 'wallets',
           label: 'Responsáveis',

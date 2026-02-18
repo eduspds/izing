@@ -54,7 +54,7 @@
             >
               <q-item-section>
                 <q-item-label> {{ scope.opt.name }}</q-item-label>
-                <q-item-label caption>{{ scope.opt.number }}</q-item-label>
+                <q-item-label caption>{{ formatPhoneDisplay(scope.opt.number) }}</q-item-label>
               </q-item-section>
             </q-item>
           </template>
@@ -91,6 +91,7 @@ const userId = +localStorage.getItem('userId')
 import { ListarContatos } from 'src/service/contatos'
 import { CriarTicket } from 'src/service/tickets'
 import ContatoModal from 'src/pages/contatos/ContatoModal'
+import { formatPhoneDisplay } from 'src/utils/formatPhoneDisplay'
 
 export default {
   name: 'ModalNovoTicket',
@@ -111,6 +112,7 @@ export default {
     }
   },
   methods: {
+    formatPhoneDisplay,
     fecharModal () {
       this.ticket = {}
       this.contatoSelecionado = null

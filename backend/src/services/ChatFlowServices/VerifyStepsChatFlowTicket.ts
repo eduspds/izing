@@ -13,6 +13,7 @@ import SendFarewellMessage from "../../helpers/SendFarewellMessage";
 import User from "../../models/User";
 import UpdateContactService from "../ContactServices/UpdateContactService";
 import { validateInput, type ValidationType, type ValidateInputOptions } from "./ChatFlowDataValidation";
+import { normalizeToBrazilianStorage } from "../../utils/phoneNumberSimilarity";
 import { logger } from "../../utils/logger";
 
 /** Monta payload do ticket com contact buscado do banco (garante nome atualizado no frontend). */
@@ -37,9 +38,12 @@ function findFirstNonSkippableStepId(
   const existingName = String(contact?.name ?? "").trim();
   const existingEmail = String(contact?.email ?? "").trim();
   const existingBirthDate = String(contact?.birthDate ?? "").trim();
+  const existingNumber = String(contact?.number ?? "").replace(/\D/g, "");
   const nameDigits = existingName.replace(/\D/g, "");
   const hasRealName = existingName.length >= 2 && !(nameDigits.length >= 10 && /^\d+$/.test(nameDigits));
   const hasValidEmail = existingEmail.includes("@") && existingEmail.length >= 5;
+  const looksLikeLid = existingNumber.length >= 12 && existingNumber.length <= 15 && /^1\d+$/.test(existingNumber);
+  const hasRealNumber = existingNumber.length >= 10 && !looksLikeLid;
 
   const wouldSkip = (s: any) => {
     if (!s?.waitForData) return false;
@@ -47,6 +51,7 @@ function findFirstNonSkippableStepId(
     const isBirth = tf === "birthDate" || ((tf === "Data de Nascimento" || tf === "Data de nascimento") && (s.validationType || "text") === "date");
     if (tf === "name" && hasRealName) return true;
     if (tf === "email" && hasValidEmail) return true;
+    if (tf === "number" && hasRealNumber) return true;
     if (isBirth && existingBirthDate.length >= 8) return true;
     return false;
   };
@@ -577,6 +582,17 @@ const VerifyStepsChatFlowTicket = async (
           return;
         }
 
+        const currentNumber = String((contactForStep as any).number ?? "").replace(/\D/g, "");
+        const numberLooksLikeLid = currentNumber.length >= 12 && currentNumber.length <= 15 && /^1\d+$/.test(currentNumber);
+        const hasRealNumberAlready = currentNumber.length >= 10 && !numberLooksLikeLid;
+        if (targetField === "number" && hasRealNumberAlready) {
+          const dataCondition = conditions.find((c: any) => c.action === 0 && c.nextStepId);
+          if (dataCondition?.nextStepId) {
+            await applySkipAndSend(dataCondition.nextStepId);
+          }
+          return;
+        }
+
         const validationType = (step.validationType || "text") as ValidationType;
         const validationOptions: ValidateInputOptions = { targetField };
         const result = validateInput(String(msg.body ?? "").trim(), validationType, validationOptions);
@@ -607,7 +623,7 @@ const VerifyStepsChatFlowTicket = async (
           return;
         }
         const value = result.value!;
-        const currentNumber = String((contactForStep as any).number ?? "").trim();
+        const existingContactNumber = String((contactForStep as any).number ?? "").trim();
         const currentExtra = (contactForStep as any).extraInfo ?? [];
         let extraInfo: { id?: number; name: string; value: string }[] = currentExtra.map((e: any) => ({
           id: e.id,
@@ -647,11 +663,23 @@ const VerifyStepsChatFlowTicket = async (
             tenantId: ticket.tenantId,
             contactData: { birthDate: value }
           });
+        } else if (effectiveField === "number") {
+          const digits = String(value).replace(/\D/g, "");
+          const with55 = digits.startsWith("55") ? digits : digits.length >= 10 ? `55${digits}` : digits;
+          const toStore =
+            with55.startsWith("55") && with55.length >= 12
+              ? normalizeToBrazilianStorage(with55)
+              : with55;
+          await UpdateContactService({
+            contactId: String(ticket.contactId),
+            tenantId: ticket.tenantId,
+            contactData: { number: toStore }
+          });
         } else {
           const idx = extraInfo.findIndex((e: any) => e.name === effectiveField);
           if (idx >= 0) extraInfo[idx] = { ...extraInfo[idx], value };
           else extraInfo.push({ name: effectiveField, value });
-          const contactData: any = { number: currentNumber, extraInfo };
+          const contactData: any = { number: existingContactNumber, extraInfo };
           if (nameToKeep.length > 0) contactData.name = nameToKeep;
           if (emailToKeep.length > 0) contactData.email = emailToKeep;
           await UpdateContactService({

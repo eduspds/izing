@@ -373,7 +373,7 @@
                     </q-item-section>
                     <q-item-section>
                       <q-item-label class="contact-name">{{ contact.name }}</q-item-label>
-                      <q-item-label caption class="contact-number">{{ contact.number }}</q-item-label>
+                      <q-item-label caption class="contact-number">{{ formatPhoneDisplay(contact.number) }}</q-item-label>
                     </q-item-section>
                   </q-item>
                 </q-list>
@@ -528,6 +528,7 @@ import MensagemChat from 'src/pages/atendimento/MensagemChat'
 import { mapGetters } from 'vuex'
 import { CriarCampanha, AlterarCampanha } from 'src/service/campanhas'
 import { parseISO, startOfDay, format } from 'date-fns'
+import { formatPhoneDisplay } from 'src/utils/formatPhoneDisplay'
 
 const isValidDate = (v) => {
   return startOfDay(new Date(parseISO(v))).getTime() >= startOfDay(new Date()).getTime()
@@ -724,6 +725,7 @@ export default {
     }
   },
   methods: {
+    formatPhoneDisplay,
     // ===== DATA =====
     dateOptions (date) {
       return date >= format(new Date(), 'yyyy/MM/dd')

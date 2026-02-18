@@ -5,14 +5,7 @@
  */
 import path from "path";
 import { rm } from "fs/promises";
-import makeWASocket, {
-  useMultiFileAuthState,
-  makeCacheableSignalKeyStore,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  type WASocket,
-  type proto
-} from "@whiskeysockets/baileys";
+import type { WASocket, proto } from "@whiskeysockets/baileys";
 import pino from "pino";
 import { getIO } from "./socket";
 import Whatsapp from "../models/Whatsapp";
@@ -20,7 +13,7 @@ import { logger as appLogger } from "../utils/logger";
 import SyncUnreadMessagesWbot from "../services/WbotServices/SyncUnreadMessagesWbot";
 import AppError from "../errors/AppError";
 import type { BaileysSession, BaileysContactSimple } from "../types/baileysAdapter";
-import { toBaileysJidFromLegacy } from "../types/baileysAdapter";
+import { toBaileysJidFromLegacy, sanitizeJidToPhone } from "../types/baileysAdapter";
 
 const AUTH_ROOT = path.resolve(process.cwd(), ".baileys_auth");
 
@@ -148,9 +141,20 @@ class WhatsAppSessionManager {
 
       (async () => {
         try {
+          // Baileys 7.x é ESM-only; dynamic import para funcionar em projeto CommonJS (6.6 = CJS sem default, 7 = ESM default)
+          const baileys = await import("@whiskeysockets/baileys");
+          const makeWASocket =
+            (baileys as any).default?.default ?? (baileys as any).default ?? (baileys as any).makeWASocket;
+          const {
+            useMultiFileAuthState,
+            makeCacheableSignalKeyStore,
+            DisconnectReason,
+            fetchLatestBaileysVersion
+          } = baileys;
+
           const { state, saveCreds } = await useMultiFileAuthState(authPath);
           let version: [number, number, number];
-          const fixedVersion = process.env.BAILEYS_USE_VERSION; // ex: "6.6.0" para contornar conexão fechando imediato
+          const fixedVersion = process.env.BAILEYS_USE_VERSION; // ex: "7.0.0-rc.9" ou "6.6.0"
           if (fixedVersion) {
             const parts = fixedVersion.split(".").map(Number);
             version = [parts[0] ?? 6, parts[1] ?? 6, parts[2] ?? 0];
@@ -203,7 +207,7 @@ class WhatsAppSessionManager {
               const contacts: BaileysContactSimple[] = [];
               for (const [jid, c] of store) {
                 if (jid.endsWith("@s.whatsapp.net")) {
-                  const number = jid.split("@")[0];
+                  const number = sanitizeJidToPhone(jid);
                   const name = (c as any)?.name ?? (c as any)?.notify ?? number;
                   contacts.push({ number, name, pushname: name, isGroup: false });
                 }
